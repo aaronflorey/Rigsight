@@ -464,6 +464,7 @@ internal sealed class AgentContext : ApplicationContext
                     var keys = _sensors.ReadKeys();
                     long unixMs = TimeUtil.NowUnixMs();
                     _history.Add(unixMs, _sensors);
+                    BootSensors.Record(_sensors);
                     _tracker.OnSensors(SystemState.With(keys));
                     _tracker.OnFans(_sensors.ReadFans());
                     _closeUps.Tick();

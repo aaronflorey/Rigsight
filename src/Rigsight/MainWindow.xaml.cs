@@ -399,6 +399,7 @@ public partial class MainWindow : Window
                 "apps" => new AppsView { DataContext = _vm.Apps },
                 "games" => new GamesView { DataContext = _vm.Games },
                 "crashes" => new CrashesView { DataContext = _vm.Crashes },
+                "boot" => new BootView(),
                 "timeline" => new TimelineView { DataContext = _vm.Timeline },
                 "temperatures" => new TemperaturesView { DataContext = _vm.Live },
                 "fans" => new FansView { DataContext = _vm.Fans },

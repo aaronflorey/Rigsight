@@ -22,6 +22,10 @@ Most hardware monitors only show numbers while you're watching. RigSight keeps t
 
 It records quietly in the background using about **0.02% of your CPU**, and everything stays on your PC.
 
+This fork also includes [Windows 11 boot diagnostics](docs/boot-diagnostics.md): early-boot ETW recording and local reports that finish with the window closed. The implementation is cross-built; real Windows reboot validation remains outstanding.
+
+The [nightly installer workflow](.github/workflows/nightly.yml) runs on every push to `main` and can also be started manually from Actions. After its checks pass, it replaces the `nightly` prerelease with the Windows x64 setup executable and language pack. Download the setup executable from the repository’s **Releases → nightly** page after the first successful run.
+
 ## What it does
 
 - **🌡️ Every degree, with a timestamp.** Live CPU and GPU temperatures, fans, drives and every other sensor, with each day's highs and a history you can scroll back through.

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType>
+    <PublishReadyToRun>false</PublishReadyToRun><NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The actual pure calculations and file retention can also be checked without Windows/WPF. -->
+    <Compile Include="../../src/Rigsight.Core/Boot/*.cs" Link="Boot/%(Filename)%(Extension)"/>
+    <Compile Include="../../src/Rigsight.Core/Log.cs" Link="Log.cs"/>
+    <Compile Include="../../src/Rigsight.Core/RigsightPaths.cs" Link="RigsightPaths.cs"/>
+    <None Include="../../src/Rigsight.Boot/Boot.wprp" Link="Boot.wprp" CopyToOutputDirectory="PreserveNewest"/>
+  </ItemGroup>
+</Project>

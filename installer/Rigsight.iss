@@ -77,6 +77,7 @@ Type: filesandordirs; Name: "{app}\update"
 Type: files; Name: "{app}\closed-for-update.txt"
 
 [UninstallRun]
+Filename: "{app}\Rigsight.Boot.exe"; Parameters: "--disable"; Flags: runhidden waituntilterminated; RunOnceId: "DisableBootRecording"
 ; What was set up for the whole PC goes with it: the start for everyone, the updater task, the note of both.
 Filename: "{app}\Rigsight.Agent.exe"; Parameters: "--everyone off"; Flags: runhidden waituntilterminated; RunOnceId: "EveryoneOff"
 Filename: "{app}\Rigsight.Agent.exe"; Parameters: "--updater off"; Flags: runhidden waituntilterminated; RunOnceId: "UpdaterOff"
@@ -149,6 +150,8 @@ procedure StopRigsight;
 var
   Code: Integer;
 begin
+  if FileExists(ExpandConstant('{app}\Rigsight.Boot.exe')) then
+    Exec(ExpandConstant('{app}\Rigsight.Boot.exe'), '--pause-worker', '', SW_HIDE, ewWaitUntilTerminated, Code);
   // Ask a running agent to save and exit cleanly; the force-kill below only catches what's left.
   if FileExists(ExpandConstant('{app}\Rigsight.Agent.exe')) then
     Exec(ExpandConstant('{app}\Rigsight.Agent.exe'), '--quit', '', SW_HIDE, ewWaitUntilTerminated, Code);
@@ -274,6 +277,7 @@ var
   ForSomeoneElse: Boolean;
 begin
   if CurStep <> ssPostInstall then exit;
+  Exec(ExpandConstant('{app}\Rigsight.Boot.exe'), '--resume-worker', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Agent := ExpandConstant('{app}\Rigsight.Agent.exe');
   // Only when someone runs setup themselves. An update installed without a window ("Restart" in the app, or by itself
   // as Windows starts) only updates Rigsight: the extra minutes would look like something broke, and whatever was

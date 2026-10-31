@@ -823,3 +823,8 @@ choice whether to do so. The GNU General Public License gives permission
 to release a modified version without this exception; this exception also
 makes it possible to release a modified version which carries forward this
 exception.
+
+Microsoft.Windows.EventTracing.Processing.All 1.12.10 and Processing.Toolkit 1.11.0
+Copyright Microsoft Corporation. All rights reserved.
+Licensed under the Microsoft .NET TraceProcessing license: https://aka.ms/TraceProcessingLicense
+A copy is installed as TraceProcessing-LICENSE.rtf. Native toolkit binaries are in wpt/.

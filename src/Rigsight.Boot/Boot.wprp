@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsPerformanceRecorder Version="1.0" Author="Rigsight">
+  <Profiles>
+    <SystemCollector Id="Kernel" Name="NT Kernel Logger">
+      <BufferSize Value="256"/><Buffers Value="128"/>
+      <MaximumFileSize Value="512" FileMode="Sequential"/>
+    </SystemCollector>
+    <EventCollector Id="Events" Name="Rigsight Boot Events">
+      <BufferSize Value="128"/><Buffers Value="64"/>
+      <MaximumFileSize Value="128" FileMode="Sequential"/>
+    </EventCollector>
+    <SystemProvider Id="System">
+      <Keywords>
+        <Keyword Value="ProcessThread"/><Keyword Value="Loader"/><Keyword Value="SampledProfile"/>
+        <Keyword Value="DiskIO"/><Keyword Value="DiskIOInit"/><Keyword Value="HardFaults"/>
+        <Keyword Value="MemoryInfo"/>
+      </Keywords>
+    </SystemProvider>
+    <EventProvider Id="Winlogon" Name="Microsoft-Windows-Winlogon" Level="5"/>
+    <EventProvider Id="Shell" Name="Microsoft-Windows-Shell-Core" Level="5"/>
+    <EventProvider Id="Services" Name="Microsoft-Windows-Services" Level="5"/>
+    <EventProvider Id="Pnp" Name="Microsoft-Windows-Kernel-PnP" Level="5"/>
+    <EventProvider Id="Boot" Name="Microsoft-Windows-Kernel-Boot" Level="5"/>
+    <Profile Id="RigsightBoot.Verbose.File" Name="RigsightBoot" Description="Bounded boot and login diagnostics" LoggingMode="File" DetailLevel="Verbose">
+      <Collectors>
+        <SystemCollectorId Value="Kernel"><SystemProviderId Value="System"/></SystemCollectorId>
+        <EventCollectorId Value="Events"><EventProviders>
+          <EventProviderId Value="Winlogon"/><EventProviderId Value="Shell"/>
+          <EventProviderId Value="Services"/><EventProviderId Value="Pnp"/><EventProviderId Value="Boot"/>
+        </EventProviders></EventCollectorId>
+      </Collectors>
+    </Profile>
+  </Profiles>
+</WindowsPerformanceRecorder>

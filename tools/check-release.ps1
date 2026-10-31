@@ -10,7 +10,7 @@ $root = Split-Path $PSScriptRoot -Parent
 if (-not $DebugCore) { $DebugCore = Join-Path $root 'bin\Debug\Rigsight.Core.dll' }
 
 $version = ([xml](Get-Content (Join-Path $root 'Directory.Build.props'))).Project.PropertyGroup.Version
-foreach ($exe in 'Rigsight.exe', 'Rigsight.Agent.exe') {
+foreach ($exe in 'Rigsight.exe', 'Rigsight.Agent.exe', 'Rigsight.Boot.exe') {
     $v = (Get-Item (Join-Path $Publish $exe)).VersionInfo.ProductVersion
     if (-not $v.StartsWith($version)) { throw "$exe is version $v, Directory.Build.props says $version" }
 }
@@ -26,3 +26,9 @@ if (-not (Test-Path $DebugCore)) { throw "No Debug build of Rigsight.Core at $De
 if ((Count-Utf16 $DebugCore 'RIGSIGHT_UPDATE_FEED') -lt 1) { throw "the update-feed check can't find the name even in a Debug build: the check is broken" }
 if ((Count-Utf16 (Join-Path $Publish 'Rigsight.Core.dll') 'RIGSIGHT_UPDATE_FEED') -gt 0) { throw 'the Release build reads RIGSIGHT_UPDATE_FEED (built with RigsightTestFeed?)' }
 Write-Host '  the Release build only trusts GitHub for updates'
+
+# TraceProcessing is loaded from this private toolkit, never from a developer's ADK.
+foreach ($file in 'Boot.wprp', 'Microsoft.Windows.EventTracing.Processing.dll', 'Microsoft.Windows.EventTracing.Cpu.dll', 'Microsoft.Windows.EventTracing.Disk.dll', 'Microsoft.Windows.EventTracing.Events.dll', 'Microsoft.Windows.EventTracing.Memory.dll', 'Microsoft.Windows.EventTracing.Processes.dll', 'Microsoft.Windows.EventTracing.Services.dll', 'wpt\perfcore.dll', 'wpt\perf_nt.dll', 'wpt\perf_tdh.dll', 'wpt\msdia140.dll') {
+    if (-not (Test-Path (Join-Path $Publish $file))) { throw "Missing boot processing dependency: $file" }
+}
+Write-Host '  boot profile and private TraceProcessing toolkit are packaged'

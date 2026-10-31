@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <OutDir>$(SharedBinDir)</OutDir>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Rigsight.Core/Rigsight.Core.csproj" />
+    <PackageReference Include="Microsoft.Windows.EventTracing.Processing.All" Version="1.12.10" />
+    <Content Include="../../assets/licenses/TraceProcessing-LICENSE.rtf" Link="TraceProcessing-LICENSE.rtf" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Boot.wprp" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

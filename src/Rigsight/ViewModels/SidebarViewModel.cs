@@ -200,7 +200,7 @@ public sealed partial class SidebarViewModel : ObservableObject
     /// "The basics" (2026-10-25): the pages someone who mostly wants to know their PC is fine looks at. Every other page is
     /// hidden, and still opens from links (Home's lines, the AI's sources).
     /// </summary>
-    public static readonly IReadOnlySet<string> BasicPages = new HashSet<string> { "home", "reports", "games", "crashes", "temperatures", "storage" };
+    public static readonly IReadOnlySet<string> BasicPages = new HashSet<string> { "home", "reports", "games", "crashes", "boot", "temperatures", "storage" };
 
     /// <summary>Every built-in page, in its usual group and order (its title in English, shown translated). A new page is one more line here.</summary>
     private static readonly (string Key, string Title, string Icon, string Group)[] BuiltIn =
@@ -211,6 +211,7 @@ public sealed partial class SidebarViewModel : ObservableObject
         ("games", Lang.Key("Games"), "", MainSection),
         ("processes", Lang.Key("Processes"), "", MainSection),
         ("crashes", Lang.Key("Crashes"), "", MainSection),
+        ("boot", Lang.Key("Boot diagnostics"), "", MainSection),
         ("timeline", Lang.Key("Timeline"), "", MainSection),
         ("temperatures", Lang.Key("Temperatures"), "", HardwareSection),
         ("fans", Lang.Key("Fans"), "fan", HardwareSection),

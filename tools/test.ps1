@@ -89,7 +89,7 @@ if ($LASTEXITCODE) { Failed 'build' }
 # The Release build, meanwhile (it doesn't share any output with the Debug tests).
 Start-Job -Name ReleaseBuild -ArgumentList $root, $publish -ScriptBlock {
     param($root, $publish)
-    foreach ($project in 'src\Rigsight.Agent', 'src\Rigsight') {
+    foreach ($project in 'src\Rigsight.Agent', 'src\Rigsight.Boot', 'src\Rigsight') {
         $out = dotnet publish (Join-Path $root $project) -c Release -r win-x64 --self-contained true -o $publish -p:DebugType=none -nologo -v q 2>&1
         if ($LASTEXITCODE) { throw "dotnet publish $project failed:`n$($out -join "`n")" }
     }

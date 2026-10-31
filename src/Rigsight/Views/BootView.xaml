@@ -1,0 +1,88 @@
+<UserControl x:Class="Rigsight.Views.BootView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="clr-namespace:Rigsight.Controls">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,24">
+            <TextBlock Text="Boot diagnostics" FontSize="26" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}"/>
+            <TextBlock Text="Record a restart, then see what Windows and your apps did before and after login." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,6,0,18"/>
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <CheckBox x:Name="Recording" Content="Enable boot recording" Click="Recording_Click" AutomationProperties.Name="Enable boot recording"/>
+                    <TextBlock x:Name="Status" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,0" AutomationProperties.LiveSetting="Polite"/>
+                    <TextBlock Text="One administrator approval at setup. Recording finishes in the background, normally 120 seconds after login, with a ten minute boot limit. Keeps up to ten recordings within 8 GiB." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8,0,0"/>
+                    <WrapPanel Margin="0,12,0,0">
+                        <Button Content="Open logs" Click="Logs_Click" Margin="0,0,8,0"/>
+                        <Button x:Name="Export" Content="Export report" Click="Export_Click" IsEnabled="False" Margin="0,0,8,0"/>
+                        <Button x:Name="Cleanup" Content="Retry cleanup" Click="Cleanup_Click" Visibility="Collapsed" Margin="0,0,8,0"/>
+                        <Button Content="Refresh" Click="Refresh_Click"/>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+            <TextBlock Text="Recent boots" FontSize="17" Foreground="{DynamicResource TextBrush}" Margin="0,18,0,8"/>
+            <ListBox x:Name="Recent" Height="110" SelectionChanged="Recent_SelectionChanged" AutomationProperties.Name="Recent boots"/>
+            <TextBlock x:Name="Empty" Text="No boot recordings yet. Enable recording, restart normally, and return after login. You can close the app." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,12"/>
+            <StackPanel x:Name="Report" Visibility="Collapsed">
+                <TextBlock x:Name="Coverage" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,16,0,8"/>
+                <TextBlock Text="What to investigate" FontSize="19" Foreground="{DynamicResource TextBrush}" Margin="0,10,0,8"/>
+                <ItemsControl x:Name="Findings"><ItemsControl.ItemTemplate><DataTemplate>
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Foreground="{DynamicResource TextBrush}" Margin="0,0,0,10"/>
+                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                <TextBlock Text="Boot and login timeline" FontSize="19" Foreground="{DynamicResource TextBrush}" Margin="0,18,0,8"/>
+                <TextBlock Text="Seconds from trace start. Credential waiting and Windows processing are shown separately when their boundaries are recorded." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,8"/>
+                <ItemsControl x:Name="Phases"><ItemsControl.ItemTemplate><DataTemplate>
+                    <StackPanel Margin="0,0,0,12" ToolTip="{Binding Evidence}">
+                        <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextBrush}"/>
+                        <TextBlock Foreground="{DynamicResource MutedBrush}"><Run Text="{Binding StartSeconds, StringFormat=F2}"/><Run Text=" → "/><Run Text="{Binding EndSeconds, StringFormat=F2}"/><Run Text=" s · duration "/><Run Text="{Binding DurationSeconds, StringFormat=F2}"/><Run Text=" s"/></TextBlock>
+                        <ProgressBar Value="{Binding DurationSeconds}" Maximum="{Binding ElementName=Report, Path=Tag}" Height="5" Margin="0,5,0,0"/>
+                    </StackPanel>
+                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                <TextBlock Text="CPU activity · sampled CPU seconds per second across all cores" TextWrapping="Wrap" Foreground="{DynamicResource TextBrush}" Margin="0,16,0,4"/>
+                <ctl:BootActivityChart x:Name="CpuChart" Height="145" AutomationProperties.Name="CPU activity over recording; exact values and responsible processes in the activity table below"/>
+                <TextBlock Text="Disk activity · MiB per second, attributed at I/O initiation" TextWrapping="Wrap" Foreground="{DynamicResource TextBrush}" Margin="0,16,0,4"/>
+                <ctl:BootActivityChart x:Name="DiskChart" Disk="True" Height="145" AutomationProperties.Name="Disk activity over recording; exact values and responsible processes in the activity table below"/>
+                <Expander Header="Activity by second and responsible processes" Margin="0,10">
+                    <DataGrid x:Name="Activity" Height="220" IsReadOnly="True" AutoGenerateColumns="False" CanUserAddRows="False" AutomationProperties.Name="Activity by second">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Second" Binding="{Binding Second}"/>
+                            <DataGridTextColumn Header="CPU s" Binding="{Binding CpuSeconds, StringFormat=F3}"/>
+                            <DataGridTextColumn Header="Top CPU process" Binding="{Binding TopCpu}" Width="*"/>
+                            <DataGridTextColumn Header="Disk bytes" Binding="{Binding DiskBytes, StringFormat=N0}"/>
+                            <DataGridTextColumn Header="Top disk process" Binding="{Binding TopDisk}" Width="*"/>
+                            <DataGridTextColumn Header="Hard faults" Binding="{Binding HardFaults}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Expander>
+                <TextBlock Text="Processes" FontSize="19" Foreground="{DynamicResource TextBrush}" Margin="0,18,0,8"/>
+                <TextBlock Text="Start/end are seconds from trace start; blank means the boundary was not observed. CPU is sampled work across all cores. Disk includes measured reads and writes." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,8"/>
+                <DataGrid x:Name="Processes" Height="320" IsReadOnly="True" AutoGenerateColumns="False" CanUserAddRows="False" AutomationProperties.Name="Boot processes">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Process" Binding="{Binding Name}" Width="*"/>
+                        <DataGridTextColumn Header="PID" Binding="{Binding Id}"/>
+                        <DataGridTextColumn Header="Start s" Binding="{Binding StartSeconds, StringFormat=F2}"/>
+                        <DataGridTextColumn Header="End s" Binding="{Binding EndSeconds, StringFormat=F2}"/>
+                        <DataGridTextColumn Header="CPU s" Binding="{Binding CpuSeconds, StringFormat=F3}"/>
+                        <DataGridTextColumn Header="Disk bytes" Binding="{Binding DiskBytes, StringFormat=N0}"/>
+                        <DataGridTextColumn Header="Hard faults" Binding="{Binding HardFaults}"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <TextBlock Text="Service and driver initialization" FontSize="19" Foreground="{DynamicResource TextBrush}" Margin="0,18,0,8"/>
+                <DataGrid x:Name="Initializations" Height="170" IsReadOnly="True" AutoGenerateColumns="False" CanUserAddRows="False" AutomationProperties.Name="Recorded service and driver initialization intervals">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
+                        <DataGridTextColumn Header="Kind" Binding="{Binding Kind}"/>
+                        <DataGridTextColumn Header="Start s" Binding="{Binding StartSeconds, StringFormat=F2}"/>
+                        <DataGridTextColumn Header="Duration s" Binding="{Binding DurationSeconds, StringFormat=F2}"/>
+                        <DataGridTextColumn Header="Evidence" Binding="{Binding Evidence}" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <TextBlock Text="Coverage and available sensors" FontSize="19" Foreground="{DynamicResource TextBrush}" Margin="0,18,0,8"/>
+                <TextBlock x:Name="Sensors" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}"/>
+                <TextBlock x:Name="Memory" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,8"/>
+                <ItemsControl x:Name="Limitations"><ItemsControl.ItemTemplate><DataTemplate>
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,8"/>
+                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
