@@ -9,7 +9,7 @@ using Rigsight.Core.Settings;
 
 namespace Rigsight.Agent.Ui;
 
-internal enum NoticeKind { Alert, Recap, Session, Crash, Overlay, Update, Rewind }
+internal enum NoticeKind { Alert, Recap, Session, Crash, Overlay, Update, Rewind, Internet, InternetBack }
 
 /// <summary>Something worth telling the user. <see cref="Urgent"/> notices are shown even during fullscreen games.</summary>
 /// <summary>
@@ -49,8 +49,8 @@ internal static class CrashNotices
 
     /// <summary>
     /// The example Settings shows: a made-up crash put through the real rules and the real wording, so the preview is
-    /// always what a notification of that crash would say ("Inside the NVIDIA driver, after 48m of play. Click for the
-    /// full picture.", under the title "Dota 2 crashed").
+    /// always what a notification of that crash would say ("Inside the NVIDIA driver, 48 minutes into the game.", under
+    /// the title "Dota 2 crashed").
     /// </summary>
     public static string Sample
     {
@@ -67,18 +67,8 @@ internal static class CrashNotices
     /// that is ("Likely as it was starting"), then how long it had been in use. Without a finding (the crash couldn't
     /// be stored), or with nothing on record to say why, no cause: a notification never states one nothing was read for.
     /// </summary>
-    public static string Body(Rigsight.Core.Stability.CrashFinding? finding, bool game, double activeSec)
-    {
-        string time = Rigsight.Core.Units.Duration(activeSec);
-        string cause = finding?.Verdict ?? "";
-        if (finding is null or { Confidence: Rigsight.Core.Stability.Confidence.NotEnough } || cause.Length == 0)
-        {
-            string used = game ? Lang.T($"After {time} of play.") : Lang.T($"After {time} of use.");
-            return $"{used}{(finding is { Confidence: Rigsight.Core.Stability.Confidence.NotEnough } ? " " + Rigsight.Core.Wording.NotEnoughWhy : "")} {Rigsight.Core.Wording.FullPicture}";
-        }
-        cause = cause.TrimEnd('.');
-        return (game ? Lang.T($"{cause}, after {time} of play.") : Lang.T($"{cause}, after {time} of use.")) + " " + Rigsight.Core.Wording.FullPicture;
-    }
+    public static string Body(Rigsight.Core.Stability.CrashFinding? finding, bool game, double activeSec) =>
+        Rigsight.Core.NoticeWords.AppDown(finding, game, activeSec);
 }
 
 internal sealed record Notice(NoticeKind Kind, string Title, string Body, string? IconPath = null,
@@ -353,12 +343,14 @@ internal static class ToastRenderer
         (NoticeKind.Alert, false) => Color.FromArgb(248, 113, 113),
         (NoticeKind.Recap or NoticeKind.Rewind, false) => Color.FromArgb(91, 140, 255),
         (NoticeKind.Session, false) => Color.FromArgb(61, 220, 151),
-        (NoticeKind.Crash, false) => Color.FromArgb(251, 191, 36),
+        (NoticeKind.Crash or NoticeKind.Internet, false) => Color.FromArgb(251, 191, 36),
+        (NoticeKind.InternetBack, false) => Color.FromArgb(61, 220, 151),
         (_, false) => Color.FromArgb(177, 140, 255),
         (NoticeKind.Alert, true) => Color.FromArgb(220, 38, 38),
         (NoticeKind.Recap or NoticeKind.Rewind, true) => Color.FromArgb(37, 99, 235),
         (NoticeKind.Session, true) => Color.FromArgb(5, 150, 105),
-        (NoticeKind.Crash, true) => Color.FromArgb(217, 119, 6),
+        (NoticeKind.Crash or NoticeKind.Internet, true) => Color.FromArgb(217, 119, 6),
+        (NoticeKind.InternetBack, true) => Color.FromArgb(5, 150, 105),
         (_, true) => Color.FromArgb(124, 58, 237),
     };
 
@@ -370,6 +362,8 @@ internal static class ToastRenderer
         NoticeKind.Crash => Lang.T("WHAT HAPPENED"),
         NoticeKind.Overlay => Lang.T("OVERLAY"),
         NoticeKind.Rewind => Lang.T("REWIND"),
+        NoticeKind.Internet => Lang.T("INTERNET DROP"),
+        NoticeKind.InternetBack => Lang.T("INTERNET BACK"),
         _ => Lang.T("UPDATE"),
     };
 

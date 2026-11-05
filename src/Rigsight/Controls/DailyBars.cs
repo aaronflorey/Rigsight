@@ -8,15 +8,28 @@ using Rigsight.Core.Settings;
 
 namespace Rigsight.Controls;
 
-/// <summary>Active hours per day, stacked by app category. Hover a bar for that day's details.</summary>
+/// <summary>
+/// Active hours per day, stacked by app category. Each bar says its total over it where there's room, and a dashed line
+/// marks the average day (the days the PC was used), so a long or short day reads without hovering (issue #9,
+/// 2026-11-05; mock-up BWEhGhSQvDsiPkBQ8Tn6M6 option A). Hover a bar for that day's details.
+/// </summary>
 public sealed class DailyBars : FrameworkElement
 {
-    private const double Left = 40, Right = 8, Top = 8, AxisHeight = 24;
+    private const double Left = 40, Right = 8, AxisHeight = 24;
+    /// <summary>Room over the plot: for the totals over the bars.</summary>
+    private const double Top = 22;
+    /// <summary>The narrowest slot a bar's total is written over (a month's 31 bars are too narrow; their hover says it).</summary>
+    public const double TotalsFrom = 44;
 
     public static readonly DependencyProperty DaysProperty = DependencyProperty.Register(
         nameof(Days), typeof(IReadOnlyList<DayBucket>), typeof(DailyBars), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     public IReadOnlyList<DayBucket>? Days { get => (IReadOnlyList<DayBucket>?)GetValue(DaysProperty); set => SetValue(DaysProperty, value); }
+
+    public static readonly DependencyProperty OnlyProperty = DependencyProperty.Register(
+        nameof(Only), typeof(IReadOnlyList<AppCategory>), typeof(DailyBars), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+    /// <summary>The kinds picked in Where the time went (null: all): the rest step back, and each bar's total is theirs.</summary>
+    public IReadOnlyList<AppCategory>? Only { get => (IReadOnlyList<AppCategory>?)GetValue(OnlyProperty); set => SetValue(OnlyProperty, value); }
 
     private int _hover = -1;
     private static readonly Dictionary<AppCategory, Brush> Fills = [];
@@ -84,6 +97,7 @@ public sealed class DailyBars : FrameworkElement
 
         double slot = plot.Width / days.Count;
         double barW = Math.Max(3, Math.Min(42, slot * 0.62));
+        bool totals = slot >= TotalsFrom;
         // A year's report has one bar per month.
         bool monthly = days.Count >= 2 && days[1].Day == days[0].Day.AddMonths(1);
         var now = DateTime.Now;
@@ -97,14 +111,30 @@ public sealed class DailyBars : FrameworkElement
             if (i == _hover)
                 dc.DrawRoundedRectangle(ChartPaint.Track, null, new Rect(cx - slot / 2 + 2, plot.Top, Math.Max(0, slot - 4), plot.Height), 6, 6);
 
+            // One plain bar, each kind's piece joined square to the next and only the top rounded (StackedBar).
             double y = plot.Bottom;
-            foreach (var (cat, sec) in d.ActiveByCategory.OrderByDescending(kv => kv.Value))
+            var only = Only;
+            var pieces = new List<(Brush, double)>();
+            // A kind picked: its pieces first (at the bottom, where they compare day to day), the rest faded over them.
+            foreach (var (cat, sec) in d.ActiveByCategory.OrderBy(kv => only is null || only.Contains(kv.Key) ? 0 : 1).ThenByDescending(kv => kv.Value))
             {
                 double bh = sec / 3600 / maxHours * plot.Height;
                 if (bh < 0.5) continue;
-                dc.DrawRectangle(Fill(cat), null, new Rect(cx - barW / 2, y - bh, barW, bh));
+                Brush fill = Fill(cat);
+                if (only is not null && !only.Contains(cat))
+                {
+                    fill = fill.Clone();
+                    fill.Opacity = 0.22;
+                    fill.Freeze();
+                }
+                pieces.Add((fill, bh));
                 y -= bh;
             }
+            StackedBar.Draw(dc, cx - barW / 2, barW, plot.Bottom, pieces);
+            // Its total over it (the picked kind's alone, when one is).
+            double shownSec = only is null ? d.ActiveSec : d.ActiveByCategory.Where(kv => only.Contains(kv.Key)).Sum(kv => kv.Value);
+            if (totals && shownSec >= 60)
+                ChartPaint.Text(dc, this, Units.Duration(shownSec), new Point(cx, y - 9), 11, i == _hover || only is not null ? ChartPaint.TextBrush : ChartPaint.Muted, ChartPaint.Align.Center);
 
             // Hours every three from midnight; more than a year of months at each quarter (January as its year);
             // otherwise count from the right, so today (the last bar) always has a label.
@@ -121,6 +151,20 @@ public sealed class DailyBars : FrameworkElement
             }
         }
 
+        // The average day, as a dashed line with its figure at the right (not for a year's months: they aren't days).
+        if (Only is null && !hourly && !monthly && AverageDay(days, now) is double avg && avg / 3600 < maxHours)
+        {
+            double y = Math.Round(plot.Bottom - plot.Height * avg / 3600 / maxHours) + 0.5;
+            var avgPen = new Pen(ChartPaint.Muted, 1.2) { DashStyle = new DashStyle([5, 4], 0) };
+            avgPen.Freeze();
+            dc.DrawLine(avgPen, new Point(plot.Left, y), new Point(plot.Right, y));
+            var text = Lang.T($"Average day {Units.Duration(avg)}");
+            var ft = ChartPaint.Format(this, text, 11, ChartPaint.TextBrush);
+            var pill = new Rect(plot.Right - ft.Width - 16, y - ft.Height - 6, ft.Width + 12, ft.Height + 4);
+            dc.DrawRoundedRectangle(ChartPaint.Track, null, pill, 5, 5);
+            ChartPaint.Text(dc, this, text, new Point(pill.Left + 6, pill.Top + pill.Height / 2), 11, ChartPaint.TextBrush, ChartPaint.Align.Left);
+        }
+
         if (_hover >= 0 && _hover < days.Count)
         {
             var d = days[_hover];
@@ -130,6 +174,8 @@ public sealed class DailyBars : FrameworkElement
                 (d.ActiveSec > 0 ? Lang.T($"{Units.Duration(d.ActiveSec)} active") : Lang.T("No activity"), ChartPaint.Muted, false),
             };
             if (d.TopApp is not null) lines.Add((Lang.T($"Most used: {d.TopApp}"), ChartPaint.Muted, false));
+            if (!hourly && !monthly && AverageDay(days, now) is double avgDay && d.ActiveSec > 0 && d.Day < now.Date)
+                lines.Add((d.ActiveSec >= avgDay ? Lang.T($"{Units.Duration(d.ActiveSec - avgDay)} more than the average day") : Lang.T($"{Units.Duration(avgDay - d.ActiveSec)} less than the average day"), ChartPaint.Muted, false));
             foreach (var (cat, sec) in d.ActiveByCategory.OrderByDescending(kv => kv.Value).Take(4))
                 lines.Add(($"{AppCatalog.Label(cat)}  {Units.Duration(sec)}", Fill(cat), false));
             if (d.CpuTempMax is double c) lines.Add((Lang.T($"CPU peak {Units.TempShort(c)}"), ChartPaint.Brush(ChartPaint.Cpu), false));
@@ -137,5 +183,15 @@ public sealed class DailyBars : FrameworkElement
             double cx = plot.Left + slot * (_hover + 0.5);
             ChartPaint.InfoBox(dc, this, lines, new Point(cx + barW / 2, plot.Top), new Rect(0, 0, w, h));
         }
+    }
+
+    /// <summary>
+    /// The average active time of the days the PC was used, today left out while it's going on (half a day would pull it
+    /// down). Null with fewer than two such days: one day is its own average.
+    /// </summary>
+    internal static double? AverageDay(IReadOnlyList<DayBucket> days, DateTime now)
+    {
+        var used = days.Where(d => d.ActiveSec >= 60 && d.Day < now.Date).Select(d => d.ActiveSec).ToList();
+        return used.Count >= 2 ? used.Average() : null;
     }
 }

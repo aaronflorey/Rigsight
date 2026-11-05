@@ -83,7 +83,8 @@ public class NotificationTests
         Assert.Equal(kinds.Length, kinds.Select(ToastRenderer.KindLabel).Distinct().Count());
         Assert.All(kinds, k => Assert.Equal(ToastRenderer.KindLabel(k).ToUpperInvariant(), ToastRenderer.KindLabel(k)));
         Assert.Equal("TEMPERATURE ALERT", ToastRenderer.KindLabel(NoticeKind.Alert));
-        Assert.Equal(5, kinds.Select(k => ToastRenderer.Accent(k)).Distinct().Count()); // overlay and update share one
+        // Overlay and update share one; a drop shares the crash's warning colour and its "back" the session's green.
+        Assert.Equal(5, kinds.Select(k => ToastRenderer.Accent(k)).Distinct().Count());
     }
 
     [Fact]
@@ -190,7 +191,7 @@ public class CrashNoticeTests
         };
         var finding = Rigsight.Core.Stability.CrashFindings.Judge(new Rigsight.Core.Stability.CrashInput(
             crash, Rigsight.Core.Stability.CrashExplainer.Explain(crash, "Rocket League"), new AlertSettings()) { AppName = "Rocket League" });
-        Assert.Equal("Likely as it was starting, after 33s of play. Click for the full picture.",
+        Assert.Equal("Likely as it was starting, 33 seconds into the game.",
             CrashNotices.Body(finding, game: true, activeSec: 33));
     }
 
@@ -201,16 +202,16 @@ public class CrashNoticeTests
         var finding = Rigsight.Core.Stability.CrashFindings.Judge(new Rigsight.Core.Stability.CrashInput(
             crash, Rigsight.Core.Stability.CrashExplainer.Explain(crash, "Game"), new AlertSettings()) { AppName = "Game" });
         string body = CrashNotices.Body(finding, game: false, activeSec: 2880);
-        Assert.Equal("After 48m of use. Not enough on record to say why. Click for the full picture.", body);
+        Assert.Equal("It had been running for 48 minutes. There isn't enough on record to say why.", body);
         Assert.DoesNotContain("Likely cause", body);
     }
 
     [Fact]
     public void A_crash_that_could_not_be_stored_only_says_it_happened()
     {
-        Assert.Equal("After 48m of play. Click for the full picture.", CrashNotices.Body(null, game: true, activeSec: 2880));
+        Assert.Equal("It had been running for 48 minutes.", CrashNotices.Body(null, game: true, activeSec: 2880));
         // The example in Settings is a made-up crash through the real rules: what it shows is what would be sent.
-        Assert.Equal("Inside the NVIDIA driver, after 48m of play. Click for the full picture.", CrashNotices.Sample);
+        Assert.Equal("Inside the NVIDIA driver, 48 minutes into the game.", CrashNotices.Sample);
         // The second look comes once Windows has had time to file its report.
         Assert.InRange(CrashNotices.SecondLook.TotalSeconds, 10, 60);
     }

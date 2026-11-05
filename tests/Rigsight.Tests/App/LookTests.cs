@@ -378,6 +378,42 @@ public sealed class LookTests
         return window;
     }
 
+    /// <summary>
+    /// A tab is built the first time it's opened, not with the page: all nine built at once took 0.5-0.8 s on each
+    /// first visit of Settings (2026-11-05). Once built it stays, and the AI tab's key boxes are found in it then.
+    /// </summary>
+    [Fact]
+    public void A_settings_tab_is_built_when_first_opened_and_kept()
+    {
+        var settings = Kit.OfflineSettings();
+        Ui.Run(() =>
+        {
+            var vm = new SettingsViewModel(settings, new AgentClient(Ui.Dispatcher), new ReportService(settings));
+            var window = Host(new Views.SettingsView { DataContext = vm });
+            try
+            {
+                bool Built(string text) => Visuals.Descendants<TextBlock>(window).Any(t => t.Text == text);
+                Assert.Equal("general", vm.Tab);
+                Assert.True(Built("Temperature unit"));
+                Assert.False(Built("Keep history for"));
+                Assert.Empty(Visuals.Descendants<PasswordBox>(window));
+
+                vm.Tab = "history";
+                Ui.Pump(80);
+                Assert.True(Built("Keep history for"));
+                vm.Tab = "ai";
+                Ui.Pump(80);
+                Assert.NotEmpty(Visuals.Descendants<PasswordBox>(window));
+                vm.Tab = "general";
+                Ui.Pump(80);
+                // Kept, hidden: switching back doesn't build it again.
+                Assert.True(Built("Keep history for"));
+                Assert.NotEmpty(Visuals.Descendants<PasswordBox>(window));
+            }
+            finally { window.Close(); }
+        });
+    }
+
     [Fact]
     public void The_settings_page_has_eight_tabs_and_each_shows_only_its_own_settings()
     {
@@ -400,7 +436,7 @@ public sealed class LookTests
                 // One line that belongs to each tab, in the tabs' order. Privacy sits with Tracking, Updates with About.
                 string[][] own =
                 [
-                    ["Temperature unit"], ["Accent colour"], ["Pause tracking", "Privacy", "Apps that are never recorded"], ["Background sensor sampling"],
+                    ["Temperature unit"], ["Accent color"], ["Pause tracking", "Privacy", "Apps that are never recorded"], ["Read sensors every"],
                     ["Daily recap"], ["AI helper"], ["Keep history for"], ["Rewinds to make", "What goes in"], ["Updates", "Update automatically", "Background agent", "Open-source notices"],
                 ];
                 for (int i = 0; i < tabs.Count; i++)
@@ -419,7 +455,7 @@ public sealed class LookTests
                 vm.GoTo("sensors");
                 Ui.Pump(300);
                 Assert.Equal("sensors", vm.Tab);
-                Assert.True(Shown("Background sensor sampling"));
+                Assert.True(Shown("Read sensors every"));
 
                 // On a standard account the ninth tab shows, with what is off there.
                 vm.StandardAccount = true;
@@ -429,7 +465,7 @@ public sealed class LookTests
                 Ui.Pump(120);
                 Assert.Equal("admin", vm.Tab);
                 Assert.True(Shown("This is a standard account"));
-                Assert.False(Shown("Background sensor sampling"));
+                Assert.False(Shown("Read sensors every"));
             }
             finally { window.Close(); }
         });
@@ -447,7 +483,7 @@ public sealed class LookTests
                 var window = Host(new Views.SettingsView { DataContext = vm });
                 try
                 {
-                    TextBlock Title() => Visuals.Descendants<TextBlock>(window).Single(t => t.Text == "Temperature and usage colours");
+                    TextBlock Title() => Visuals.Descendants<TextBlock>(window).Single(t => t.Text == "Temperature and usage colors");
                     Assert.False(Title().IsVisible);
                     vm.Accent = "teal";
                     vm.Refresh(); // as the shell does on every settings change

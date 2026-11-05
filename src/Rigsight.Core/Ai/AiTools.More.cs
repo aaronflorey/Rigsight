@@ -163,7 +163,7 @@ public sealed partial class AiTools
 
     private static DateTime At(JsonObject args)
     {
-        string? s = (string?)args["time"];
+        string? s = AiArgs.Text(args["time"]);
         foreach (var f in new[] { "yyyy-MM-dd HH:mm", "yyyy-MM-ddTHH:mm", "yyyy-MM-dd H:mm", "yyyy-MM-dd HH:mm:ss" })
             if (DateTime.TryParseExact(s, f, CultureInfo.InvariantCulture, DateTimeStyles.None, out var t)) return t;
         throw new FormatException("'time' must be a local time like 2026-10-20 15:00.");
@@ -205,6 +205,10 @@ public sealed partial class AiTools
         else
         {
             var a = settings.Ai;
+            // Only the watts that were read: a card that gives no power reading (an RTX 3050's driver, 2026-11-02) was
+            // "GPU  W" in every minute, blank where the number goes.
+            if (a.Sends(AiPages.Temperatures) && minutes.All(m => m.GpuPower is null))
+                sb.AppendLine("The graphics card's power wasn't read in any of these minutes (the card gave no power reading), so it isn't below. Don't guess it.");
             sb.AppendLine("Each recorded minute:");
             foreach (var m in minutes)
             {
@@ -213,7 +217,8 @@ public sealed partial class AiTools
                 {
                     parts.Add($"CPU {T(m.CpuTempMax)} {Pct(m.CpuLoad)} busy");
                     parts.Add($"GPU {T(m.GpuTempMax)} {Pct(m.GpuLoad)} busy" + (m.GpuHotMax is double h ? $", hot spot {h:0} °C" : ""));
-                    if (m.CpuPower is double cp || m.GpuPower is double) parts.Add($"power CPU {m.CpuPower:0} W, GPU {m.GpuPower:0} W");
+                    var watts = new[] { m.CpuPower is double cp ? $"CPU {cp:0} W" : null, m.GpuPower is double gp ? $"GPU {gp:0} W" : null }.OfType<string>().ToList();
+                    if (watts.Count > 0) parts.Add("power " + string.Join(", ", watts));
                 }
                 if (a.Sends(AiPages.Memory) && m.RamUsed is double ram) parts.Add($"memory {ram:0.0} GB" + (m.CommitPct is double c && c >= 80 ? $" (Windows {c:0}% of what it can promise)" : ""));
                 if (a.Sends(AiPages.Apps) && m.FgApp is long fg) parts.Add($"in front: {name(fg)}" + (m.Fps is double fps ? $" at {fps:0} fps" : ""));
@@ -428,6 +433,26 @@ public sealed partial class AiTools
         var drops = db.GetNetDrops(f, t);
         sb.AppendLine(drops.Count == 0 ? "The connection didn't drop." : $"The connection dropped {drops.Count} times: " + string.Join("; ", drops.TakeLast(10).Select(d =>
             $"{TimeUtil.FromUnix(d.Start):d MMM h:mm tt} for {Units.Duration(d.Seconds)} ({(d.Kind == NetDropKind.Link ? "the cable or Wi-Fi itself" : "past the PC: the router or the provider")})")) + ".");
+        // The line check (1.3.0): the ping to the router and to the provider's first router, every few seconds.
+        var pings = db.GetNetPings(f, t);
+        if (Reports.NetLine.Of(pings) is { } line)
+        {
+            sb.AppendLine($"The line check (a ping every 5 seconds to {(line.Provider ? "the internet provider's first router" : "this PC's router; the provider's didn't answer")}): usually {line.Usual} ms, highest {line.Highest} ms, "
+                + $"{line.LostPercent:0.#}% of pings unanswered" + (line.Provider && line.HomeUsual is int home ? $"; the home side (this PC to its router) usually {home} ms" : "")
+                + ". It measures the line up to the provider, not all the way to a game's or website's server.");
+            int high = Reports.NetLinePing.HighFor(line.Usual);
+            // The hours it went high, each with the app uploading the most then (one filling the upload slows everything else).
+            var hours = pings.GroupBy(p => TimeUtil.ToUnix(TimeUtil.FromUnix(p.Ts) is var t ? t.Date.AddHours(t.Hour) : default)).Select(g => (Hour: g.Key, Line: Reports.NetLine.Of(g))).Where(h => h.Line is { } l && l.Highest >= high).ToList();
+            if (hours.Count > 0)
+            {
+                var uploads = db.GetNetAppHours(f, t).ToLookup(u => u.Ts);
+                sb.AppendLine($"Hours the ping went past {high} ms: " + string.Join("; ", hours.TakeLast(12).Select(h =>
+                {
+                    var up = uploads[h.Hour].Where(u => u.Up >= Reports.NetLine.BusyUploadBytes).MaxBy(u => u.Up);
+                    return $"{TimeUtil.FromUnix(h.Hour):d MMM h tt} up to {h.Line!.Highest} ms" + (up is null ? "" : $" while {name(up.App)} uploaded {Units.Data(up.Up)}");
+                })) + ".");
+            }
+        }
         return sb.ToString();
     }
 

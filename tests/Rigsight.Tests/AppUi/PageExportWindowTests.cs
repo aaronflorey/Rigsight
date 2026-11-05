@@ -97,7 +97,7 @@ public sealed class PageExportWindowTests(AppHost host) : IClassFixture<AppHost>
         {
             var vm = host.Shell.Network;
             vm.SelectedBin = vm.Bins.Count - 1;
-            vm.BackgroundOnly = true;
+            vm.Sort = "Background";
             host.Shell.ExportPageCommand.Execute(null);
             var box = host.Shell.PageExport;
             Assert.Equal("The bar picked", box.Periods.Single(p => p.IsOn).Label);
@@ -105,7 +105,7 @@ public sealed class PageExportWindowTests(AppHost host) : IClassFixture<AppHost>
             Assert.Equal([true], box.Scopes.Single().Picked);
             box.CloseCommand.Execute(null);
             vm.SelectedBin = -1;
-            vm.BackgroundOnly = false;
+            vm.Sort = "Total";
             host.Shell.ExportPageCommand.Execute(null);
             Assert.Equal(Rigsight.Core.Reports.ReportRange.Day, box.Periods.Single(p => p.IsOn).Unit);
             Assert.Equal([null], box.Scopes.Single().Picked);
@@ -207,8 +207,8 @@ public sealed class PageExportWindowTests(AppHost host) : IClassFixture<AppHost>
                 host.Shell.ExportPageCommand.Execute(null);
                 var box = host.Shell.PageExport;
                 box.AsCsv = true;
-                // All time, so the period surely has the app in it.
-                box.PickPeriod(box.Periods.First(p => p.Unit == Rigsight.Core.Reports.ReportRange.All));
+                // The last 12 months, so the period surely has the app in it (All time was taken out 2026-11-05).
+                box.PickPeriod(box.Periods.First(p => p.Unit == Rigsight.Core.Reports.ReportRange.Year));
                 // The app the test picked, not the one the page shows first by itself.
                 box.Scopes.Single().Options.Single(o => o.Value as string == exe).IsOn = true;
                 Assert.Equal(exe, box.Scopes.Single().Picked.Single());

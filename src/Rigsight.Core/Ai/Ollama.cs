@@ -262,7 +262,7 @@ public static class Ollama
                 Log.Write("ollama", $"{model} round {round}: expected an answer, got HTTP {status}: {error}");
                 return new AiReply(null, status == 404
                     ? Lang.T($"Ollama doesn't have {model} any more. Pick another model in Settings › Ask RigSight.")
-                    : Lang.T($"Ollama couldn't answer ({error})"), lookUps);
+                    : Lang.T($"Ollama couldn't answer ({error}). Ask again, or pick another model in Settings."), lookUps);
             }
             var msg = json?["message"];
             if (msg?["tool_calls"] is JsonArray { Count: > 0 } calls)
@@ -288,8 +288,8 @@ public static class Ollama
             string? note = null;
             if (await OnCardAsync(root, model, ct) is { } onCard && onCard < 0.95 && Warned.Add(model))
             {
-                Log.Write("ollama", $"{model} is {onCard:P0} on the graphics card; the rest runs on the processor");
-                note = Lang.T($"Only part of {model} fits on your graphics card, so answers take longer. A smaller model in Settings › Ask RigSight would be quicker.");
+                Log.Write("ollama", $"{model} is {onCard:P0} on the GPU; the rest runs on the CPU");
+                note = Lang.T($"Only part of {model} fits on your GPU, so answers take longer. A smaller model in Settings › Ask RigSight would be quicker.");
             }
             return new AiReply(answer, null, lookUps, model, note);
         }
@@ -358,7 +358,7 @@ public static class Ollama
         string what = tool switch
         {
             // The search in full: the line wraps where the window is narrow (cut at 47 letters it read `limit s…"…` with room to spare).
-            "search_web" when (string?)args["query"] is { Length: > 0 } q => Lang.T($"Searching the web for \"{q.Trim()}\""),
+            "search_web" when AiArgs.Text(args["query"]) is { Length: > 0 } q => Lang.T($"Searching the web for \"{q.Trim()}\""),
             "search_web" => Lang.T("Searching the web"),
             "get_report" => Lang.T("Reading your report"),
             "get_crashes" => Lang.T("Reading your crashes"),
@@ -371,7 +371,7 @@ public static class Ollama
             "get_apps" => Lang.T("Reading your apps"),
             "get_memory" => Lang.T("Reading your memory"),
             "get_storage" => Lang.T("Reading your drives"),
-            "get_drive_scan" when (string?)args["drive"] is { Length: > 0 } d => Lang.T($"Reading the scan of {d.Trim().TrimEnd(':').ToUpperInvariant()}:"),
+            "get_drive_scan" when AiArgs.Text(args["drive"]) is { Length: > 0 } d => Lang.T($"Reading the scan of {d.Trim().TrimEnd(':').ToUpperInvariant()}:"),
             "get_network" => Lang.T("Reading your internet use"),
             "get_on_times" => Lang.T("Reading when your PC was on"),
             "get_today" => Lang.T("Reading today so far"),
@@ -382,7 +382,7 @@ public static class Ollama
             "get_widgets" => Lang.T("Reading your widgets"),
             "get_overlay" => Lang.T("Reading your overlay"),
             "get_taskbar" => Lang.T("Reading your taskbar readings"),
-            "get_game" when (string?)args["name"] is { Length: > 0 } game => Lang.T($"Reading {game}"),
+            "get_game" when AiArgs.Text(args["name"]) is { Length: > 0 } game => Lang.T($"Reading {game}"),
             _ => Lang.T("Reading your PC history"),
         };
         string range = AiSources.Range(new AiLookUp(tool, args, 0));

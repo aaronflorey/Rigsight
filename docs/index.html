@@ -126,6 +126,7 @@ p { margin: 0; }
 .hero-logo-lg { width: 72px; height: 72px; border-radius: 18px; }
 /* Opening: the logo, then the name letter by letter, then the line, the buttons and the rest. */
 .ltr { display: inline-block; }
+.vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 @keyframes rise { from { opacity: 0; transform: translateY(.38em); filter: blur(10px); } to { opacity: 1; transform: none; filter: blur(0); } }
 @keyframes pop { from { opacity: 0; transform: scale(.6) rotate(-8deg); } to { opacity: 1; transform: none; } }
 @keyframes up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
@@ -490,7 +491,7 @@ footer { border-top: 1px solid var(--line); padding-block: 36px 48px; }
   "operatingSystem": "Windows 10, Windows 11",
   "applicationCategory": "UtilitiesApplication",
   "applicationSubCategory": "PC monitoring, hardware monitor, screen time tracker",
-  "softwareVersion": "1.1.0",
+  "softwareVersion": "1.5.0",
   "featureList": [
     "CPU and GPU temperature history",
     "App usage and screen time reports",
@@ -632,7 +633,7 @@ footer { border-top: 1px solid var(--line); padding-block: 36px 48px; }
     <div class="wrap hero-main">
       <div class="hero-copy">
         <img class="hero-logo hero-logo-lg" src="img/logo-144.webp" alt="" width="80" height="80">
-        <h1 aria-label="RigSight"><span class="ltr" style="--i:0">R</span><span class="ltr" style="--i:1">i</span><span class="ltr" style="--i:2">g</span><span class="ltr" style="--i:3">s</span><span class="ltr" style="--i:4">i</span><span class="ltr" style="--i:5">g</span><span class="ltr" style="--i:6">h</span><span class="ltr" style="--i:7">t</span></h1>
+        <h1 aria-label="RigSight, a free PC monitor for Windows"><span class="ltr" style="--i:0">R</span><span class="ltr" style="--i:1">i</span><span class="ltr" style="--i:2">g</span><span class="ltr" style="--i:3">S</span><span class="ltr" style="--i:4">i</span><span class="ltr" style="--i:5">g</span><span class="ltr" style="--i:6">h</span><span class="ltr" style="--i:7">t</span><span class="vh">, a free PC monitor for Windows</span></h1>
         <p class="lead step" style="--d:.45s">Know your rig. A free Windows PC monitor that tracks temperatures, app usage, network activity, and crashes over time — with AI that answers questions about your PC's history.</p>
         <div class="cta step" style="--d:.6s">
           <a class="btn btn-primary" data-download href="https://github.com/b0llu/Rigsight/releases/latest">
@@ -757,7 +758,7 @@ footer { border-top: 1px solid var(--line); padding-block: 36px 48px; }
             <p class="label">Temperatures</p>
             <p class="big c-cpu">65°</p>
             <p class="big-cap">The CPU right now, with the GPU beside it at <b>68°</b> in a game. Every sensor keeps its own low and high.</p>
-            <h3>Every degree, with a timestamp.</h3>
+            <h3>Every CPU and GPU degree, with a timestamp.</h3>
             <p>Live CPU and GPU gauges, hot spot and memory junction, load, clocks, power and voltages, with a history from the last five minutes to any year.</p>
             <ul class="ticks">
               <li>Shows where nothing was recorded, and why: off, asleep or a crash</li>
@@ -777,7 +778,7 @@ footer { border-top: 1px solid var(--line); padding-block: 36px 48px; }
         <article class="feature flip">
           <div class="copy">
             <p class="label">Crashes</p>
-            <h3>Crashes, explained in plain words.</h3>
+            <h3>PC and game crashes, explained in plain words.</h3>
             <p>App crashes, freezes, graphics driver resets, blue screens and sudden shut-offs. RigSight reads them from Windows' own records and keeps what Windows wrote apart from what it concludes.</p>
             <ol class="evidence">
               <li><span class="ev-k">What Windows recorded</span><p>Crimson Desert crashed on Wed 7 Oct at 10:06 PM, inside <b>nvwgf2umx.dll</b>, a file of NVIDIA's graphics driver.</p></li>
@@ -890,7 +891,7 @@ footer { border-top: 1px solid var(--line); padding-block: 36px 48px; }
               <p class="label">Network</p>
               <p class="big">54 GB</p>
               <p class="big-cap">What <b>Steam</b> downloaded this October, 42 GB of it while you were away.</p>
-              <h3>Where your internet goes.</h3>
+              <h3>Which app is using your internet.</h3>
               <p>What each app downloads and uploads, split into what you were using, what ran in the background and what moved while you were away. Your biggest days, and every time the connection dropped.</p>
             </div>
             <figure class="frame"><picture><source media="(max-width: 640px)" srcset="img/phone/network.webp"><img srcset="img/pages/network-720.webp 720w, img/pages/network.webp 1424w" sizes="(max-width: 960px) 100vw, 680px" decoding="async" src="img/pages/network.webp" alt="RigSight's Network page for October: usage each day by app, the apps list and connection drops" width="1424" height="924" loading="lazy"></picture></figure>
@@ -902,7 +903,7 @@ footer { border-top: 1px solid var(--line); padding-block: 36px 48px; }
               <p class="label">Fans</p>
               <p class="big">16h 41m</p>
               <p class="big-cap">How long the GPU fans stood still in the week of 28 September, <b>while the card was cool</b>.</p>
-              <h3>Every fan, and what wakes it up.</h3>
+              <h3>Every fan speed, and what wakes it up.</h3>
               <p>Every fan on your graphics card and motherboard: when they start, how fast they turn at each temperature, which game works them hardest, and a heads-up when one turns slower than it used to.</p>
             </div>
             <figure class="frame"><picture><source media="(max-width: 640px)" srcset="img/phone/fans.webp"><img srcset="img/pages/fans-720.webp 720w, img/pages/fans.webp 1424w" sizes="(max-width: 960px) 100vw, 680px" decoding="async" src="img/pages/fans.webp" alt="RigSight's Fans page for the week of 28 September: all fans OK, quiet time, the game that worked them hardest" width="1424" height="924" loading="lazy"></picture></figure>
@@ -914,7 +915,7 @@ footer { border-top: 1px solid var(--line); padding-block: 36px 48px; }
               <p class="label">Memory</p>
               <p class="big c-ram">68%</p>
               <p class="big-cap">Of 16 GB in use right now, with <b>today's biggest memory users</b> and their peaks.</p>
-              <h3>What's filling your RAM.</h3>
+              <h3>What's using your RAM.</h3>
               <p>Memory in use and free, which apps hold it now against what they usually take, and each app's processes down to every browser tab and Windows service.</p>
             </div>
             <figure class="frame"><picture><source media="(max-width: 640px)" srcset="img/phone/memory.webp"><img srcset="img/pages/memory-720.webp 720w, img/pages/memory.webp 1424w" sizes="(max-width: 960px) 100vw, 680px" decoding="async" src="img/pages/memory.webp" alt="RigSight's Memory page: the RAM gauge, today's biggest memory users and the apps using memory now" width="1424" height="924" loading="lazy"></picture></figure>
@@ -926,7 +927,7 @@ footer { border-top: 1px solid var(--line); padding-block: 36px 48px; }
               <p class="label">Storage</p>
               <p class="big">19.7 GB</p>
               <p class="big-cap">Of NVIDIA shader cache you could clear. <b>Nothing is deleted for you.</b></p>
-              <h3>How full, and how healthy.</h3>
+              <h3>How full your drives are, and how healthy.</h3>
               <p>How fast each drive is filling, SSD and hard drive health, space you could free, and a map of what is inside any drive or folder.</p>
             </div>
             <figure class="frame"><picture><source media="(max-width: 640px)" srcset="img/phone/storage.webp"><img srcset="img/pages/storage-720.webp 720w, img/pages/storage.webp 1424w" sizes="(max-width: 960px) 100vw, 680px" decoding="async" src="img/pages/storage.webp" alt="RigSight's Storage page: four drives with how fast they fill, drive health and space you could free" width="1424" height="924" loading="lazy"></picture></figure>
@@ -1059,7 +1060,7 @@ footer { border-top: 1px solid var(--line); padding-block: 36px 48px; }
         </div>
         <a class="dl" data-download href="https://github.com/b0llu/Rigsight/releases/latest">
           <span class="dl-icon"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 5.1 10.4 4v7.2H3zm0 13.8 7.4 1.1v-7.1H3zm8.3 1.2L21 21.5v-8.6h-9.7zm0-16.2v7.3H21V2.5z"/></svg></span>
-          <span class="dl-text"><b>Download for Windows</b><small>Version <span data-version>1.1.0</span> · Free, no account, no ads</small></span>
+          <span class="dl-text"><b>Download for Windows</b><small>Version <span data-version>1.5.0</span> · Free, no account, no ads</small></span>
           <svg class="dl-arrow" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14"/></svg>
         </a>
         <p class="trust">
@@ -1108,7 +1109,7 @@ footer { border-top: 1px solid var(--line); padding-block: 36px 48px; }
       <a class="btn btn-primary" data-download href="https://github.com/b0llu/Rigsight/releases/latest">
         <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M3 5.1 10.4 4v7.2H3zm0 13.8 7.4 1.1v-7.1H3zm8.3 1.2L21 21.5v-8.6h-9.7zm0-16.2v7.3H21V2.5z"/></svg>
         Download for Windows</a>
-      <p class="final-links"><span>Version <span data-version>1.1.0</span></span><a href="https://github.com/b0llu/Rigsight/releases">All releases</a><a class="coffee-pill" href="https://buymeacoffee.com/bollu"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M4 8h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zm13 1.5h1.5a2.5 2.5 0 0 1 0 5H17v-1.8h1.5a.7.7 0 0 0 0-1.4H17zM6 20h11v1.5H6z"/></svg>Buy me a coffee</a></p>
+      <p class="final-links"><span>Version <span data-version>1.5.0</span></span><a href="https://github.com/b0llu/Rigsight/releases">All releases</a><a class="coffee-pill" href="https://buymeacoffee.com/bollu"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M4 8h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zm13 1.5h1.5a2.5 2.5 0 0 1 0 5H17v-1.8h1.5a.7.7 0 0 0 0-1.4H17zM6 20h11v1.5H6z"/></svg>Buy me a coffee</a></p>
     </div>
   </section>
 </main>
@@ -1130,7 +1131,7 @@ footer { border-top: 1px solid var(--line); padding-block: 36px 48px; }
 </footer>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=1.0.3" defer></script>
+<script src="app.js?v=1.0.4" defer></script>
 <!-- Visit counts for this website only (Umami: no cookies, nothing that says who you are). The app itself sends nothing. -->
 <script defer src="https://cloud.umami.is/script.js" data-website-id="d4359802-485d-4a07-97c4-6a8083d4a95d"></script>
 </body>

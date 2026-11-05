@@ -41,10 +41,12 @@ public sealed partial class ReportsViewModel(ReportService reports) : Observable
     partial void OnReportChanged(Report? value)
     {
         SyncApps();
+        // Another period: no kind picked (its kinds and days are another's).
+        if (PickedKind is { } picked && !SplitOf(value).Contains(picked)) PickedKind = null;
         foreach (var name in new[]
                  {
-                     nameof(ActiveLine), nameof(GamesText), nameof(GamesLine), nameof(InternetText), nameof(InternetLine), nameof(HasEnergy), nameof(EnergyText),
-                     nameof(TimeSplit), nameof(HasTimeSplit), nameof(TimeSplitNote), nameof(ShownInsights), nameof(UsualRows), nameof(HasUsual), nameof(UsualNow), nameof(ProblemsLine), nameof(ProblemsTone),
+                     nameof(ActiveLine), nameof(GamesText), nameof(GamesLine), nameof(InternetText), nameof(InternetLine), nameof(HasEnergy), nameof(EnergyText), nameof(EnergyParts),
+                     nameof(TimeSplit), nameof(HasTimeSplit), nameof(TimeSplitNote), nameof(TimeRows), nameof(ShownInsights), nameof(UsualRows), nameof(HasUsual), nameof(UsualNow), nameof(ProblemsLine), nameof(ProblemsTone),
                  })
             OnPropertyChanged(name);
     }
@@ -87,45 +89,62 @@ public sealed partial class ReportsViewModel(ReportService reports) : Observable
                 return Lang.T($"{up} uploaded");
             }
             double change = (net.Down - net.PreviousDown.Value) / (double)net.PreviousDown.Value * 100;
-            return AgainstBefore(Range, change);
+            return AgainstBefore(Range, change, Report!.To - Report.From);
         }
     }
 
-    /// <summary>The period's download against the one before it, each sentence whole: "12% more than the week before".</summary>
-    private static string AgainstBefore(ReportRange range, double change)
+    /// <summary>
+    /// The period's download against the one before it, each sentence whole: "12% more than the 7 days before". A custom
+    /// range names the one before by its length ("the 14 days before"), as long as its own <paramref name="span"/>.
+    /// </summary>
+    private static string AgainstBefore(ReportRange range, double change, TimeSpan span)
     {
         double by = Math.Abs(change);
+        int days = span.TotalHours >= 24 ? (int)Math.Round(span.TotalDays) : 0, hours = Math.Max(1, (int)Math.Round(span.TotalHours));
         if (by < 3)
             return range switch
             {
                 ReportRange.Day => Lang.T("About the same as the day before"),
-                ReportRange.Week => Lang.T("About the same as the week before"),
-                ReportRange.Month => Lang.T("About the same as the month before"),
-                ReportRange.Year => Lang.T("About the same as the year before"),
-                _ => Lang.T("About the same as the period before"),
+                ReportRange.Week => Lang.T("About the same as the 7 days before"),
+                ReportRange.Month => Lang.T("About the same as the 30 days before"),
+                ReportRange.Year => Lang.T("About the same as the 12 months before"),
+                _ => days >= 2 ? Lang.T($"About the same as the {days} days before")
+                    : days == 1 ? Lang.T("About the same as the day before")
+                    : hours == 1 ? Lang.T("About the same as the hour before") : Lang.T($"About the same as the {hours} hours before"),
             };
         if (change > 0)
             return range switch
             {
                 ReportRange.Day => Lang.T($"{by:0}% more than the day before"),
-                ReportRange.Week => Lang.T($"{by:0}% more than the week before"),
-                ReportRange.Month => Lang.T($"{by:0}% more than the month before"),
-                ReportRange.Year => Lang.T($"{by:0}% more than the year before"),
-                _ => Lang.T($"{by:0}% more than the period before"),
+                ReportRange.Week => Lang.T($"{by:0}% more than the 7 days before"),
+                ReportRange.Month => Lang.T($"{by:0}% more than the 30 days before"),
+                ReportRange.Year => Lang.T($"{by:0}% more than the 12 months before"),
+                _ => days >= 2 ? Lang.T($"{by:0}% more than the {days} days before")
+                    : days == 1 ? Lang.T($"{by:0}% more than the day before")
+                    : hours == 1 ? Lang.T($"{by:0}% more than the hour before") : Lang.T($"{by:0}% more than the {hours} hours before"),
             };
         return range switch
         {
             ReportRange.Day => Lang.T($"{by:0}% less than the day before"),
-            ReportRange.Week => Lang.T($"{by:0}% less than the week before"),
-            ReportRange.Month => Lang.T($"{by:0}% less than the month before"),
-            ReportRange.Year => Lang.T($"{by:0}% less than the year before"),
-            _ => Lang.T($"{by:0}% less than the period before"),
+            ReportRange.Week => Lang.T($"{by:0}% less than the 7 days before"),
+            ReportRange.Month => Lang.T($"{by:0}% less than the 30 days before"),
+            ReportRange.Year => Lang.T($"{by:0}% less than the 12 months before"),
+            _ => days >= 2 ? Lang.T($"{by:0}% less than the {days} days before")
+                : days == 1 ? Lang.T($"{by:0}% less than the day before")
+                : hours == 1 ? Lang.T($"{by:0}% less than the hour before") : Lang.T($"{by:0}% less than the {hours} hours before"),
         };
     }
 
     /// <summary>What the CPU and the graphics card drew ("1.9 kWh", "410 Wh"); left out where no power is read.</summary>
     public bool HasEnergy => Report?.EnergyWh is > 0;
     public string EnergyText => Report?.EnergyWh is > 0 and var wh ? EnergyOf(wh) : "—";
+    /// <summary>Whose power it is: a part never read in the period isn't named (a card that gives no power reading, 2026-11-02).</summary>
+    public string EnergyParts => (Report?.CpuEnergyWh, Report?.GpuEnergyWh) switch
+    {
+        (not null, null) => Lang.T("CPU only"),
+        (null, not null) => Lang.T("GPU only"),
+        _ => Lang.T("CPU and GPU"),
+    };
     internal static string EnergyOf(double wattHours) => wattHours >= 1000 ? $"{wattHours / 1000:0.0} kWh" : $"{wattHours:0} Wh";
 
     // The PC's own problems (blue screens, graphics driver resets, sudden shut-offs in use), as Home and the "Against your
@@ -206,6 +225,20 @@ public sealed partial class ReportsViewModel(ReportService reports) : Observable
     /// <summary>The period's time in use by kind of app, biggest first; kinds under a fiftieth of it go into "Everything else".</summary>
     public List<TimePart> TimeSplit => _timeSplit = Kept.Or(_timeSplit, SplitOf(Report));
     public bool HasTimeSplit => TimeSplit.Count >= 2;
+
+    /// <summary>
+    /// The kind picked in Where the time went (null: none): the days' graph under it shows only that kind, with its time
+    /// over each bar. Click it again for all of them.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TimeRows), nameof(PickedKinds), nameof(BarsTitleShown))]
+    private TimePart? _pickedKind;
+    public List<TimeRow> TimeRows => [.. TimeSplit.Select(p => new TimeRow(p, PickedKind is not null && PickedKind != p, PickedKind == p))];
+    public IReadOnlyList<Core.Settings.AppCategory>? PickedKinds => PickedKind?.Kinds;
+    public string BarsTitleShown => PickedKind is { } k && IsMultiDay ? $"{BarsTitle} · {k.Name}" : BarsTitle;
+
+    [RelayCommand]
+    private void PickKind(TimeRow row) => PickedKind = !IsMultiDay || PickedKind == row.Part ? null : row.Part;
     public string TimeSplitNote => Report is { } r ? InUseAway(Units.Duration(r.ActiveSec), Units.Duration(r.AwaySec)) : "";
 
     private static string InUseAway(string inUse, string away) => Lang.T($"{inUse} in use · {away} away");
@@ -213,19 +246,29 @@ public sealed partial class ReportsViewModel(ReportService reports) : Observable
     internal static List<TimePart> SplitOf(Report? report)
     {
         if (report is null) return [];
-        var kinds = report.Apps.Where(a => a.ActiveSec > 0).GroupBy(a => a.Category).Select(g => (Kind: g.Key, Sec: g.Sum(a => a.ActiveSec))).OrderByDescending(k => k.Sec).ToList();
+        var used = report.Apps.Where(a => a.ActiveSec > 0).ToList();
+        var kinds = used.GroupBy(a => a.Category).Select(g => (Kind: g.Key, Sec: g.Sum(a => a.ActiveSec))).OrderByDescending(k => k.Sec).ToList();
         double total = kinds.Sum(k => k.Sec);
         if (total < 60) return [];
-        var parts = new List<TimePart>();
-        double rest = 0;
+        var parts = new List<(string Name, double Sec, string Brush, List<Core.Settings.AppCategory> Kinds)>();
+        var rest = new List<Core.Settings.AppCategory>();
+        double restSec = 0;
         foreach (var (kind, sec) in kinds)
         {
-            // System apps, anything unsorted and slivers too small to see in the bar are one grey part at the end.
-            if (kind is Core.Settings.AppCategory.Other or Core.Settings.AppCategory.System || sec < total / 50) rest += sec;
-            else parts.Add(new TimePart(Core.Apps.AppCatalog.Label(kind), sec, ThemeManager.CategoryHex(kind)));
+            // System apps, anything unsorted and slivers too small to see are one grey part at the end.
+            if (kind is Core.Settings.AppCategory.Other or Core.Settings.AppCategory.System || sec < total / 50) { restSec += sec; rest.Add(kind); }
+            else parts.Add((Core.Apps.AppCatalog.Label(kind), sec, ThemeManager.CategoryHex(kind), [kind]));
         }
-        if (rest >= 60) parts.Add(new TimePart(Lang.T("Everything else"), rest, ThemeManager.CategoryHex(Core.Settings.AppCategory.System)));
-        return parts;
+        if (restSec >= 60) parts.Add((Lang.T("Everything else"), restSec, ThemeManager.CategoryHex(Core.Settings.AppCategory.System), rest));
+        double largest = parts.Count > 0 ? parts.Max(p => p.Sec) : 1;
+        return [.. parts.Select(p =>
+        {
+            // Named from a minute of use; the rest are "N more".
+            var apps = used.Where(a => p.Kinds.Contains(a.Category) && a.ActiveSec >= 60).OrderByDescending(a => a.ActiveSec).ToList();
+            var named = apps.Take(2).Select(a => $"{a.Name} {Units.Duration(a.ActiveSec)}").ToList();
+            if (apps.Count > 2) named.Add(Lang.T($"{apps.Count - 2} more"));
+            return new TimePart(p.Name, p.Sec, p.Brush) { Kinds = p.Kinds, Share = p.Sec / total, OfLargest = p.Sec / largest, Apps = string.Join(" · ", named) };
+        })];
     }
 
     // ── Against your usual ──
@@ -239,11 +282,11 @@ public sealed partial class ReportsViewModel(ReportService reports) : Observable
     public List<UsualRow> UsualRows => _usualRows = Kept.Or(_usualRows, UsualOf(Report));
     public bool HasUsual => UsualRows.Count > 0;
 
-    /// <summary>The column of this period's figures: "THIS WEEK", "THIS MONTH", "THESE DAYS".</summary>
+    /// <summary>The column of this period's figures: "LAST 7 DAYS", "THOSE 30 DAYS", "THESE DAYS".</summary>
     public string UsualNow => Range switch
     {
-        ReportRange.Week => IncludesNow ? Lang.T("THIS WEEK") : Lang.T("THAT WEEK"),
-        ReportRange.Month => IncludesNow ? Lang.T("THIS MONTH") : Lang.T("THAT MONTH"),
+        ReportRange.Week => IncludesNow ? Lang.T("LAST 7 DAYS") : Lang.T("THOSE 7 DAYS"),
+        ReportRange.Month => IncludesNow ? Lang.T("LAST 30 DAYS") : Lang.T("THOSE 30 DAYS"),
         _ => Lang.T("THESE DAYS"),
     };
 
@@ -400,14 +443,10 @@ public sealed partial class ReportsViewModel(ReportService reports) : Observable
     private string When => Controls.PeriodPicker.Words(Range, Anchor);
 
     /// <summary>What the page says when the period has nothing.</summary>
-    public string EmptyTitle
-    {
-        get
-        {
-            string when = When;
-            return Lang.T($"Not recorded {when}");
-        }
-    }
+    public string EmptyTitle => _emptyWhy ?? Lang.T($"Not recorded {When}");
+
+    /// <summary>Why the period shown has nothing (the PC was off, asleep…: see <see cref="WhyEmpty"/>), once it has been worked out.</summary>
+    private string? _emptyWhy;
 
     /// <summary>
     /// Another period was picked and is taking a moment to read (a week or a month, the first time): the page shows
@@ -459,21 +498,15 @@ public sealed partial class ReportsViewModel(ReportService reports) : Observable
         }
     }
 
-    /// <summary>"History starts on 3 October, so this week has 4 days of data.", each sentence whole.</summary>
-    private static string Coverage(ReportRange range, bool inProgress, DateTime since, int days) => (range, inProgress, days == 1) switch
+    /// <summary>"History starts on 3 October, so these 7 days have 4 days of data.", each sentence whole.</summary>
+    private static string Coverage(ReportRange range, bool inProgress, DateTime since, int days) => (range, days == 1) switch
     {
-        (ReportRange.Week, true, true) => Lang.T($"History starts on {since:d MMMM}, so this week has {days} day of data."),
-        (ReportRange.Week, true, false) => Lang.T($"History starts on {since:d MMMM}, so this week has {days} days of data."),
-        (ReportRange.Week, false, true) => Lang.T($"History starts on {since:d MMMM}, so that week has {days} day of data."),
-        (ReportRange.Week, false, false) => Lang.T($"History starts on {since:d MMMM}, so that week has {days} days of data."),
-        (ReportRange.Year, true, true) => Lang.T($"History starts on {since:d MMMM}, so this year has {days} day of data."),
-        (ReportRange.Year, true, false) => Lang.T($"History starts on {since:d MMMM}, so this year has {days} days of data."),
-        (ReportRange.Year, false, true) => Lang.T($"History starts on {since:d MMMM}, so that year has {days} day of data."),
-        (ReportRange.Year, false, false) => Lang.T($"History starts on {since:d MMMM}, so that year has {days} days of data."),
-        (_, true, true) => Lang.T($"History starts on {since:d MMMM}, so this month has {days} day of data."),
-        (_, true, false) => Lang.T($"History starts on {since:d MMMM}, so this month has {days} days of data."),
-        (_, false, true) => Lang.T($"History starts on {since:d MMMM}, so that month has {days} day of data."),
-        _ => Lang.T($"History starts on {since:d MMMM}, so that month has {days} days of data."),
+        (ReportRange.Week, true) => Lang.T($"History starts on {since:d MMMM}, so these 7 days have {days} day of data."),
+        (ReportRange.Week, false) => Lang.T($"History starts on {since:d MMMM}, so these 7 days have {days} days of data."),
+        (ReportRange.Year, true) => Lang.T($"History starts on {since:d MMMM}, so these 12 months have {days} day of data."),
+        (ReportRange.Year, false) => Lang.T($"History starts on {since:d MMMM}, so these 12 months have {days} days of data."),
+        (_, true) => Lang.T($"History starts on {since:d MMMM}, so these 30 days have {days} day of data."),
+        _ => Lang.T($"History starts on {since:d MMMM}, so these 30 days have {days} days of data."),
     };
 
     private static bool UsedActively(AppStat a) => a.ActiveSec >= 30;
@@ -556,6 +589,7 @@ public sealed partial class ReportsViewModel(ReportService reports) : Observable
         OnPropertyChanged(nameof(IsMultiDay));
         OnPropertyChanged(nameof(IsYear));
         OnPropertyChanged(nameof(BarsTitle));
+        OnPropertyChanged(nameof(BarsTitleShown));
         if (Range != ReportRange.Custom || _customPending) return;
         _customPending = true;
         System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(() =>
@@ -588,7 +622,16 @@ public sealed partial class ReportsViewModel(ReportService reports) : Observable
             list.AddRange(Core.Stability.StorageChanges.From(db.GetDriveDays(from - 86400)).Where(c => c.Time >= report.From && c.Time < report.To));
             return list;
         }) ?? [];
+        // Nothing recorded: why, said plainly (it said "the PC was off, or the background agent wasn't running" for both).
+        string? why = null;
+        if (report is not { HasData: true })
+        {
+            var (f, t) = report is { } r0 ? (r0.From, r0.To) : Controls.PeriodPicker.Bounds(range, anchor, customFrom, customTo);
+            why = await reports.EmptyWhyAsync(f, t, Controls.PeriodPicker.Words(range, anchor));
+        }
         if (id != _loadId) return;
+        _emptyWhy = why;
+        OnPropertyChanged(nameof(EmptyTitle));
         // A different period starts with short lists again; the minute refresh of the same one keeps them open.
         if (report?.From != Report?.From || report?.To != Report?.To) _crashLimit = CrashesPage;
         FirstDay = first;

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Why my display driver stopped responding and has recovered · RigSight</title>
-  <meta name="description" content="&quot;Display driver stopped responding and has recovered&quot; means the graphics card took too long to answer and Windows reset its driver. How RigSight caught the resets on my own PC, what LiveKernelEvent 141 and nvlddmkm events mean, and how to fix it." />
+  <meta name="description" content="Display driver stopped responding and has recovered means Windows reset the driver after the GPU went quiet for about two seconds. Causes and fixes." />
   <meta name="theme-color" content="#000000" />
   <meta name="color-scheme" content="dark" />
   <link rel="canonical" href="https://rigsight.app/blog/display-driver-stopped-responding" />
@@ -12,7 +12,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="../img/icon-192.png" />
   <meta property="og:site_name" content="RigSight" />
   <meta property="og:title" content="Why my display driver stopped responding and has recovered · RigSight" />
-  <meta property="og:description" content="&quot;Display driver stopped responding and has recovered&quot; means the graphics card took too long to answer and Windows reset its driver. How RigSight caught the resets on my own PC, what LiveKernelEvent 141 and nvlddmkm events mean, and how to fix it." />
+  <meta property="og:description" content="Display driver stopped responding and has recovered means Windows reset the driver after the GPU went quiet for about two seconds. Causes and fixes." />
   <meta property="og:url" content="https://rigsight.app/blog/display-driver-stopped-responding" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="alternate" type="application/rss+xml" title="The RigSight log" href="https://rigsight.app/blog/feed.xml" />
@@ -21,7 +21,7 @@
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="800" />
   <meta property="og:type" content="article" />
-  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "Why my display driver stopped responding and has recovered", "description": "\"Display driver stopped responding and has recovered\" means the graphics card took too long to answer and Windows reset its driver. How RigSight caught the resets on my own PC, what LiveKernelEvent 141 and nvlddmkm events mean, and how to fix it.", "datePublished": "2026-10-28", "dateModified": "2026-10-28", "image": "https://rigsight.app/img/blog/display-driver-stopped-responding.webp", "author": {"@type": "Person", "name": "Dhruv Samant"}, "publisher": {"@type": "Organization", "name": "RigSight", "url": "https://rigsight.app"}, "mainEntityOfPage": "https://rigsight.app/blog/display-driver-stopped-responding", "keywords": "display driver stopped responding and has recovered, how to fix display driver stopped responding and has recovered, display driver stopped responding and has recovered windows 11, display driver stopped working and has recovered, nvlddmkm crash, nvlddmkm nvidia corporation video_tdr_error, why does my graphics driver keep crashing"}</script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "Why my display driver stopped responding and has recovered", "description": "Display driver stopped responding and has recovered means Windows reset the driver after the GPU went quiet for about two seconds. Causes and fixes.", "datePublished": "2026-10-28", "dateModified": "2026-10-28", "image": "https://rigsight.app/img/blog/display-driver-stopped-responding.webp", "author": {"@type": "Person", "name": "Dhruv Samant"}, "publisher": {"@type": "Organization", "name": "RigSight", "url": "https://rigsight.app"}, "mainEntityOfPage": "https://rigsight.app/blog/display-driver-stopped-responding", "keywords": "display driver stopped responding and has recovered, how to fix display driver stopped responding and has recovered, display driver stopped responding and has recovered windows 11, display driver stopped working and has recovered, nvlddmkm crash, nvlddmkm nvidia corporation video_tdr_error, why does my graphics driver keep crashing"}</script>
   <script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Home", "item": "https://rigsight.app/"}, {"@type": "ListItem", "position": 2, "name": "Blog", "item": "https://rigsight.app/blog/"}, {"@type": "ListItem", "position": 3, "name": "Why my display driver stopped responding and has recovered", "item": "https://rigsight.app/blog/display-driver-stopped-responding"}]}</script>
   <script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "What does \"display driver stopped responding and has recovered\" mean?", "acceptedAnswer": {"@type": "Answer", "text": "It means the graphics card didn't finish a task within Windows' time limit, about two seconds by default, so Windows reset the graphics driver instead of letting the whole PC freeze. Your screen usually flickers or goes black for a moment and then comes back. The game running at the time often crashes or shows a black screen."}}, {"@type": "Question", "name": "What is LiveKernelEvent 141?", "acceptedAnswer": {"@type": "Answer", "text": "It is the report Windows writes when part of the graphics card stopped answering and Windows recovered it. You see it in Reliability Monitor as Hardware error, with LiveKernelEvent and 141 or 117 in its details. 141 means one graphics engine timed out, 117 means the whole graphics card did. Both are graphics hangs that Windows recovered from."}}, {"@type": "Question", "name": "What is nvlddmkm event 153?", "acceptedAnswer": {"@type": "Answer", "text": "nvlddmkm is the NVIDIA kernel driver. Event 153 in the System log usually says a TDR reset occurred on the GPU, so it is NVIDIA's own record of the same reset. Event 13 from nvlddmkm logs a graphics exception, and its data line holds the error code."}}, {"@type": "Question", "name": "Should I increase TdrDelay in the registry?", "acceptedAnswer": {"@type": "Answer", "text": "Not as a fix. Microsoft documents the TDR registry keys for testing and debugging during driver development and says end users shouldn't change them. A longer delay can stop the message, but whatever made the card hang is still there, and the PC can sit frozen for longer instead of recovering."}}, {"@type": "Question", "name": "Can display driver resets damage my graphics card?", "acceptedAnswer": {"@type": "Answer", "text": "The reset itself is Windows protecting the PC, and it doesn't harm the card. The cause can matter, though. Heat or a struggling power supply are worth fixing before they get worse."}}]}</script>
   <style>
@@ -43,7 +43,7 @@
   --gpu: #22d3ee;
   --hot: #a78bfa;
   --ram: #c084fc;
-  --coffee: #ffdd00;
+  --coffee: #facc15;
   --display: "Geist", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --body: "Geist", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -56,18 +56,23 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 a { color: var(--gpu); text-underline-offset: 3px; }
 a:focus-visible, button:focus-visible { outline: 2px solid var(--gpu); outline-offset: 3px; border-radius: 6px; }
 img { max-width: 100%; height: auto; }
-.wrap { max-width: 1040px; margin: 0 auto; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); }
-.wrap-narrow { max-width: 776px; margin: 0 auto; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); }
+/* As wide as the home page's (its --max), so the top bar and what's under it line up with it. A post keeps its
+   reading width: each part inside has its own max-width and starts at the same left edge as the top bar. */
+.wrap, .wrap-narrow { max-width: 1200px; margin: 0 auto; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); }
 
-/* top bar */
+/* top bar: the home page's, size for size */
 .top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: rgba(0,0,0,.86); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
-.top-in { display: flex; align-items: center; gap: 24px; height: 62px; }
+.top-in { display: flex; align-items: center; gap: 48px; height: 68px; }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--fg); text-decoration: none; font-weight: 700; font-size: 17px; letter-spacing: -0.02em; }
 .brand img { border-radius: 6px; }
-.top nav { display: flex; gap: 30px; margin-left: 24px; }
-.top nav a { color: var(--muted); text-decoration: none; font-size: 14.5px; font-weight: 600; }
+.top .brand { gap: 11px; font: 700 19px/1 var(--display); }
+.top .brand img { width: 30px; height: 30px; border-radius: 8px; }
+.top nav { display: flex; gap: 30px; }
+.top nav a { color: #b9bec7; text-decoration: none; font: 500 15.5px/1 var(--body); }
 .top nav a:hover, .top nav a.on { color: var(--fg); }
 .top nav a.coffee, .foot a.coffee { color: var(--coffee); }
+.top nav a.coffee { font-weight: 700; }
+.top .btn-sm { height: 40px; padding: 0 20px; font-size: 15px; }
 .top-end { display: flex; align-items: center; gap: 14px; margin-left: auto; }
 .coffee-pill { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 999px; color: var(--coffee); font-weight: 600; font-size: 14.5px; text-decoration: none; background: rgba(250,204,21,.08); border: 1px solid rgba(250,204,21,.3); white-space: nowrap; }
 .coffee-pill:hover { color: #fde047; background: rgba(250,204,21,.14); }
@@ -197,7 +202,10 @@ figcaption { font-size: 14px; line-height: 1.55; color: var(--faint); margin-top
 @media (max-width: 760px) {
   .wrap, .wrap-narrow { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
   .top nav a:not(.on) { display: none; }
-  .top-end { gap: 8px; }
+  /* as on the home page: Blog sits with GitHub and Download on the right */
+  .top nav { margin-left: auto; }
+  .top nav a.on { font: 600 15px/1 var(--body); padding: 8px 4px; }
+  .top-end { gap: 14px; margin-left: 0; }
   .top-in { gap: 14px; }
   .row a { grid-template-columns: 1fr; gap: 16px; padding: 24px 0; }
   .row h2 { font-size: 21px; }
@@ -268,7 +276,7 @@ figcaption { font-size: 14px; line-height: 1.55; color: var(--faint); margin-top
 <p>Try these in order. The first ones are the easiest to test.</p>
 
 <ol>
-<li>Update, roll back or clean install the graphics driver. The driver is the most common cause and the easiest to test. If the resets started right after a driver update, roll it back. Open <b>Device Manager</b> &gt; <b>Display adapters</b>, right-click your card, and pick <b>Properties</b> &gt; <b>Driver</b> &gt; <b>Roll Back Driver</b>. If you have been on the same driver for months, update it. Either way, use the clean install option. On NVIDIA, pick <b>Custom (Advanced)</b> and tick <b>Perform a clean installation</b>. On AMD, use the installer's <b>Factory Reset</b> option, which removes earlier versions of AMD Software and means you can't roll back to them afterwards. The full steps, and when DDU is worth it, are in games crashing after a graphics driver update.</li>
+<li>Update, roll back or clean install the graphics driver. The driver is the most common cause and the easiest to test. If the resets started right after a driver update, roll it back. Open <b>Device Manager</b> &gt; <b>Display adapters</b>, right-click your card, and pick <b>Properties</b> &gt; <b>Driver</b> &gt; <b>Roll Back Driver</b>. If you have been on the same driver for months, update it. Either way, use the clean install option. On NVIDIA, pick <b>Custom (Advanced)</b> and tick <b>Perform a clean installation</b>. On AMD, use the installer's <b>Factory Reset</b> option, which removes earlier versions of AMD Software and means you can't roll back to them afterwards. The full steps, and when DDU is worth it, are in <a href="games-crashing-after-driver-update">games crashing after a graphics driver update</a>.</li>
 <li>Put the graphics card back to stock clocks. Reset MSI Afterburner or your card maker's tool to default and turn off any automatic tuning. Some cards ship with a factory overclock, and some have a switch for a quiet BIOS that runs lower clocks. Try it if yours has one.</li>
 <li>Check the GPU's temperature while you play, using a monitor that keeps a history. NVIDIA lists a maximum GPU temperature on the specification page for many of its cards, and it differs by model. The hot spot, which AMD calls junction temperature, normally runs well above the main GPU reading, so judge each against its own limit. If your card sits at its limit, clean the dust out, check the fans spin and give the case more airflow.</li>
 <li>Check the power. Make sure every power plug on the card is fully seated. If your card takes two or three power plugs, check the manuals for the card and the power supply. Some ask for a separate cable from the power supply to each plug instead of one cable with two plugs on it, and with a card that draws a lot of power that is the safer choice where your supply has enough cables. If resets only come at the heaviest moments of a game, the power supply is a real suspect.</li>
@@ -280,7 +288,7 @@ figcaption { font-size: 14px; line-height: 1.55; color: var(--faint); margin-top
 <p>Your next step is to open Reliability Monitor and count the Hardware error entries for the last few weeks. One reset after hours of play is rarely worth worrying about. If there are several, start with a clean driver install and stock clocks, then check the temperature and power at the moments they happen.</p>
   <section class="faq"><h2>Questions people ask</h2><details class="qa"><summary>What does &quot;display driver stopped responding and has recovered&quot; mean?</summary><p>It means the graphics card didn't finish a task within Windows' time limit, about two seconds by default, so Windows reset the graphics driver instead of letting the whole PC freeze. Your screen usually flickers or goes black for a moment and then comes back. The game running at the time often crashes or shows a black screen.</p></details><details class="qa"><summary>What is LiveKernelEvent 141?</summary><p>It is the report Windows writes when part of the graphics card stopped answering and Windows recovered it. You see it in Reliability Monitor as Hardware error, with LiveKernelEvent and 141 or 117 in its details. 141 means one graphics engine timed out, 117 means the whole graphics card did. Both are graphics hangs that Windows recovered from.</p></details><details class="qa"><summary>What is nvlddmkm event 153?</summary><p>nvlddmkm is the NVIDIA kernel driver. Event 153 in the System log usually says a TDR reset occurred on the GPU, so it is NVIDIA's own record of the same reset. Event 13 from nvlddmkm logs a graphics exception, and its data line holds the error code.</p></details><details class="qa"><summary>Should I increase TdrDelay in the registry?</summary><p>Not as a fix. Microsoft documents the TDR registry keys for testing and debugging during driver development and says end users shouldn't change them. A longer delay can stop the message, but whatever made the card hang is still there, and the PC can sit frozen for longer instead of recovering.</p></details><details class="qa"><summary>Can display driver resets damage my graphics card?</summary><p>The reset itself is Windows protecting the PC, and it doesn't harm the card. The cause can matter, though. Heat or a struggling power supply are worth fixing before they get worse.</p></details></section>
   </div>
-  <nav class="next rel" aria-label="More on PC problems"><a class="more" href="game-crashes-to-desktop-no-error"><span>Crashes</span><b>Game crashes to desktop with no error? How RigSight finds why</b></a><a class="more" href="find-out-why-pc-crashed"><span>Crashes</span><b>Why did my PC crash? How RigSight caught one on mine</b></a><a class="more" href="kernel-power-41"><span>Crashes</span><b>Why Kernel-Power 41 happens, and how RigSight caught mine</b></a><a class="more" href="normal-cpu-temperature-while-gaming"><span>Temperatures</span><b>Normal CPU temperature while gaming, and why yours jumps around</b></a></nav>
+  <nav class="next rel" aria-label="More on PC problems"><a class="more" href="blue-screen-of-death-causes"><span>Crashes</span><b>Blue screen of death causes on Windows 11, and the three on my PC</b></a><a class="more" href="game-crashes-to-desktop-no-error"><span>Crashes</span><b>Game crashes to desktop with no error? How RigSight finds why</b></a><a class="more" href="find-out-why-pc-crashed"><span>Crashes</span><b>Why did my PC crash? How RigSight caught one on mine</b></a><a class="more" href="kernel-power-41"><span>Crashes</span><b>Why Kernel-Power 41 happens, and how RigSight caught mine</b></a></nav>
   <aside class="get">
     <img src="../img/logo-144.webp" alt="" width="40" height="40">
     <p><b>RigSight is free and open source.</b> It records your PC's temperatures, crashes, app time and internet use all day, and keeps them as history on your PC.</p>

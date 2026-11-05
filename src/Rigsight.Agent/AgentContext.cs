@@ -1,4 +1,4 @@
-﻿using Microsoft.Win32;
+using Microsoft.Win32;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.NetworkInformation;
@@ -77,6 +77,11 @@ internal sealed class AgentContext : ApplicationContext
     private volatile AddressBook _addresses = AddressBook.Empty;
     private volatile bool _addressesChanged = true;
     private readonly ConnectionWatch _connection = new();
+    private readonly DropNotices _dropNotices = new();
+    /// <summary>The network card's kind ("Wi-Fi", "Ethernet") while it was last connected: what a drop's words name.</summary>
+    private string? _cardKind;
+    private long _cardKindAt;
+    private LineCheck? _line;
     private readonly TraceWatch _traceWatch = new();
     private readonly SensorHealth _sensorHealth = new();
     private readonly DisplayDriverWatch _displayWatch = new();
@@ -93,6 +98,13 @@ internal sealed class AgentContext : ApplicationContext
     private readonly TrayController _tray;
     private readonly TrayReadings _trayReadings;
     private readonly TaskbarStrip _taskbarStrip;
+    private readonly ReadingCard _card;
+
+    /// <summary>The latest process pass (sampler thread): what a reading card lists as the apps using a part.</summary>
+    private ProcessSnapshot? _lastProcs;
+
+    /// <summary>The taskbar readings waiting for room in the strip's "+N" (set on the UI thread, sent with each tick for the Taskbar page).</summary>
+    private volatile IReadOnlyList<string> _trayWaiting = [];
     private readonly WidgetManager _widgets;
     private readonly OverlayManager _overlay;
     /// <summary>The Ask shortcut: opens the app on the Ask window from anywhere, while the AI is on (2026-10-26).</summary>
@@ -194,12 +206,23 @@ internal sealed class AgentContext : ApplicationContext
             remove: ids => MutateSettings(s => s.TraySensors.RemoveAll(ids.Contains)),
             setGrouped: on => MutateSettings(s => s.TrayStyle = on ? TrayStyle.Grouped : TrayStyle.Icons),
             openPage: () => OpenApp("taskbar"));
+        _card = new ReadingCard(page => OpenApp(page));
         _taskbarStrip = new TaskbarStrip(open: () => OpenApp(null),
             remove: ids => MutateSettings(s => s.TraySensors.RemoveAll(ids.Contains)),
-            setStyle: style => MutateSettings(s => s.TrayStyle = style),
+            // Every reading in one style: each one's own style goes.
+            setStyle: style => MutateSettings(s => { s.TrayStyle = style; s.TrayStyles.Clear(); }),
             openPage: () => OpenApp("taskbar"),
             setSide: side => MutateSettings(s => s.TraySide = side),
-            setGraph: (id, on) => MutateSettings(s => { s.TrayGraphs.Remove(id); if (on) s.TrayGraphs.Add(id); }));
+            setLook: (id, look) => MutateSettings(s => { s.TrayLooks.Remove(id); if (look != TrayLook.Number) s.TrayLooks[id] = look; }),
+            openCard: OpenCard, cardShowing: () => _card.Key is not null,
+            setStyleOf: (ids, style) => MutateSettings(s =>
+            {
+                foreach (var id in ids)
+                {
+                    s.TrayStyles.Remove(id);
+                    if (style != s.TrayStyle) s.TrayStyles[id] = style;
+                }
+            }));
         _tray = new TrayController(() => OpenApp(null), _widgets.BuildTrayMenu(), _overlay.TrayItem, PauseFor, Resume,
             () => _settings.Tracking.IsPaused(TimeUtil.NowUnix()), () => Quit("the tray menu"));
         _notices = new NotificationCenter(() => _settings, _tray, OpenApp, n => _overlay.ShowInGame(n, _settings.Alerts.CardSeconds));
@@ -340,10 +363,10 @@ internal sealed class AgentContext : ApplicationContext
         if (version is null || _settings.LastUpdateNotice == version) return;
         MutateSettings(s => s.LastUpdateNotice = version);
         string body = !downloaded ? Lang.T("Click to update.")
-            : _settings.AutoUpdate && _isAdmin ? Lang.T("It installs by itself the next time you start your PC, or click to update now.")
+            : _settings.AutoUpdate && _isAdmin ? Lang.T("It installs the next time you start your PC, or click to update now.")
             : Lang.T("It's downloaded. Click to finish updating.");
         // Clicked, the app opens asking to restart (or downloading), not on its usual page with no word of the update.
-        _notices.Show(new Notice(NoticeKind.Update, downloaded ? Lang.T($"Version {version} is ready") : Lang.T($"Version {version} is out"), body, Page: "update"));
+        _notices.Show(new Notice(NoticeKind.Update, downloaded ? Lang.T($"RigSight {version} is ready") : Lang.T($"RigSight {version} is out"), body, Page: "update"));
     }
 
     // ── Sampler thread ────────────────────────────────────────────────────
@@ -450,7 +473,8 @@ internal sealed class AgentContext : ApplicationContext
                     t0 = Stopwatch.GetTimestamp();
                     // Sensors on the overlay stay live in games (the app is usually closed then).
                     // And those in the taskbar, which are always on show.
-                    _sensors.Watch([.. _overlayVisible ? _settings.Overlay.Sensors.Select(s => s.Id) : [], .. _settings.TraySensors, .. WidgetSensorIds(_settings)]);
+                    _sensors.Watch([.. _overlayVisible ? _settings.Overlay.Sensors.Select(s => s.Id) : [], .. _settings.TraySensors, .. _settings.TrayLookFrom.Values,
+                        .. WidgetSensorIds(_settings)]);
                     CheckDisplayDriver();
                     _sensors.Update(everything: live, now);
                     if (_sensorHealth.Check(_sensors.Unwell, now))
@@ -493,6 +517,8 @@ internal sealed class AgentContext : ApplicationContext
                             ExtremesFull = full,
                             // No trace on an agent that should have one, after the remedies: the page says it isn't recording.
                             Net = _netTrace is not null || _cardsBefore is not null ? _tracker.NetNow : _isAdmin && _traceWatch.Stalled ? NotRecording : null,
+                            Line = _line?.Live(),
+                            TrayWaiting = _trayWaiting is { Count: > 0 } waiting ? [.. waiting] : null,
                         });
                     }
 
@@ -519,6 +545,7 @@ internal sealed class AgentContext : ApplicationContext
                     Measure("processes", t0);
                     t0 = Stopwatch.GetTimestamp();
                     _running = snapshot.PidToExe;
+                    _lastProcs = snapshot;
                     _activity.UpdateProcessMap(snapshot.PidToExe);
                     var windows = _activity.ScanWindows();
                     _tracker.OnProcesses(snapshot, windows, pdt);
@@ -595,6 +622,7 @@ internal sealed class AgentContext : ApplicationContext
         Step("extremes", () => SaveExtremes(force: true));
         Step("crash watch", () => _appCrashWatch?.Dispose());
         Step("network trace", () => _netTrace?.Dispose());
+        Step("line check", () => _line?.Dispose());
         NetworkChange.NetworkAddressChanged -= OnAddressChanged;
         NetworkChange.NetworkAvailabilityChanged -= OnAvailabilityChanged;
         Step("sensors", _sensors.Close);
@@ -622,7 +650,7 @@ internal sealed class AgentContext : ApplicationContext
         if (!_gpusPaused)
         {
             _gpusPaused = true;
-            Log.Write("sensors", "A graphics card's driver is changing: leaving the graphics cards alone, and starting again once it has settled");
+            Log.Write("sensors", "A GPU's driver is changing: leaving the GPUs alone, and starting again once it has settled");
         }
         if (_restarting || !_displayWatch.Settled(Environment.TickCount64)) return;
         _restarting = true;
@@ -649,7 +677,7 @@ internal sealed class AgentContext : ApplicationContext
         using (var guard = new ScanGuard(ScanMarker, keepMarker: safe))
         {
             guard.Exceeded += grown => _ui.Post(_ => _tray.ShowNotification(Lang.T("RigSight stopped reading some sensors"),
-                Lang.T("Windows' memory kept growing while it read the motherboard and fan hubs. Restart your PC if it stays slow."), warning: true), null);
+                Lang.T("Windows' memory kept growing while it read the motherboard, fan hubs and power supply. After a restart, press Try again in Settings, Sensors."), warning: true), null);
             try
             {
                 host.Open();
@@ -695,7 +723,7 @@ internal sealed class AgentContext : ApplicationContext
             using (var guard = new ScanGuard(ScanMarker, keepMarker: safe))
             {
                 guard.Exceeded += grown => _ui.Post(_ => _tray.ShowNotification(Lang.T("RigSight stopped reading some sensors"),
-                    Lang.T("Windows' memory kept growing while it read the RAM sticks. Restart your PC if it stays slow."), warning: true), null);
+                    Lang.T("Windows' memory kept growing while it read the RAM sticks. After a restart, press Try again in Settings, Sensors."), warning: true), null);
                 host.OpenMemory();
                 if (guard.Tripped) _stoppedForMemory = true;
             }
@@ -1020,25 +1048,244 @@ internal sealed class AgentContext : ApplicationContext
         return map;
     }
 
-    /// <summary>The taskbar's sensors (sampler thread): the name given on All sensors, else the sensor's own.</summary>
+    // ── Reading cards (issue #5): what a click on a taskbar reading opens ──
+
+    /// <summary>Each taskbar reading's last minutes (sampler thread), for its card's graph: since it came to the taskbar or the agent started.</summary>
+    private readonly Dictionary<string, Queue<(long Ms, float Value)>> _trayHistory = [];
+
+    private void RememberTray(IReadOnlyList<TrayReading> readings)
+    {
+        long now = Environment.TickCount64, keep = ReadingCards.GraphMinutes * 60_000L;
+        foreach (var gone in _trayHistory.Keys.Where(id => readings.All(r => r.Id != id)).ToList()) _trayHistory.Remove(gone);
+        foreach (var r in readings)
+        {
+            if (!_trayHistory.TryGetValue(r.Id, out var q)) _trayHistory[r.Id] = q = new();
+            q.Enqueue((now, r.Value is double v && double.IsFinite(v) ? (float)v : float.NaN));
+            while (q.Count > 0 && now - q.Peek().Ms > keep) q.Dequeue();
+        }
+    }
+
+    /// <summary>
+    /// A click on taskbar readings (UI thread): their card, gathered on the sampler, opened above them. The same readings
+    /// again close it (as a click on Windows' clock closes its own card).
+    /// </summary>
+    private void OpenCard(IReadOnlyList<string> ids, Rectangle anchor, float scale)
+    {
+        string key = string.Join('\n', ids);
+        if (_card.CloseIfShowing(key) || _card.JustClosed(key)) return;
+        bool light = DarkMenuRenderer.Light;
+        RunOnSampler(() =>
+        {
+            var settings = _settings;
+            var sections = CardFor(key, TrayReadingsFor(settings), settings, light);
+            var (accent, onAccent) = CardAccent(settings, light);
+            _ui.Post(_ =>
+            {
+                // A reading not found on this PC has nothing to show: RigSight, as a click did before.
+                if (sections.Count == 0) OpenApp(null);
+                else _card.Open(key, sections, anchor, scale, accent, onAccent);
+            }, null);
+        });
+    }
+
+    /// <summary>The button's colours: the accent picked in Settings, else the theme's own (its text colour, the card's colour on it).</summary>
+    private static (Color Accent, Color OnAccent) CardAccent(RigsightSettings settings, bool light) =>
+        AccentColors.Of(settings.Accent, light) is { } c
+            ? (Color.FromArgb(c.R, c.G, c.B), AccentColors.DarkTextOn(c.R, c.G, c.B) ? Color.Black : Color.White)
+            : (DarkMenuRenderer.TextColor, DarkMenuRenderer.Bg);
+
+    /// <summary>
+    /// A card's sections (sampler thread, see <see cref="ReadingCards"/>): one per part among the readings in
+    /// <paramref name="key"/>, in the order they were clicked. Readings not found on this PC are left out.
+    /// </summary>
+    private List<CardSection> CardFor(string key, IReadOnlyList<TrayReading> readings, RigsightSettings settings, bool light)
+    {
+        var ids = key.Split('\n');
+        var clicked = ids.Select(id => readings.FirstOrDefault(r => r.Id == id)).Where(r => r.Id is not null && r.Hardware.Length > 0).ToList();
+        var sensors = _sensors;
+        var schema = sensors.Schema;
+        string? KeyId(string name) => sensors.Keys.TryGetValue(name, out int i) && i >= 0 && i < sensors.Ids.Length ? sensors.Ids[i] : null;
+        string? cpuTempId = KeyId(KeySensors.CpuTemp), gpuTempId = KeyId(KeySensors.GpuTemp);
+        var extremes = _extremes.Snapshot();
+        var today = _lastToday;
+        bool gray = settings.TrayGrayscale;
+        var clickedIds = clicked.Select(r => r.Id).ToHashSet();
+        CardLine Line(string label, SensorKind kind, double value) =>
+            new(label, Units.StripText(kind, value), kind == SensorKind.Temperature && !gray ? WidgetRenderer.TrayColor(kind, value, light) : null);
+
+        var sections = new List<CardSection>();
+        foreach (var group in clicked.GroupBy(r => r.Group))
+        {
+            var first = group.First();
+            var device = schema.FirstOrDefault(h => h.Sensors.Any(s => s.Id == first.Id));
+
+            // The part's other readings: its key sensors (the CPU's, the graphics card's, RAM's) when they're on this
+            // device; a fan's, the board's other fans and temperatures; else one of each kind on the same device.
+            var rows = new List<CardLine>();
+            var keyRows = ReadingCards.KeyRows(first.Part).Select(k => (Id: KeyId(k.Key), k.Label)).Where(k => k.Id is not null).ToList();
+            bool keysHere = device is not null && keyRows.Any(k => device.Sensors.Any(s => s.Id == k.Id));
+            if (keysHere)
+            {
+                foreach (var (id, label) in keyRows)
+                {
+                    if (rows.Count >= ReadingCards.MaxRows || clickedIds.Contains(id!)) continue;
+                    if (sensors.ReadSensor(id!) is { } s && s.Value is double v) rows.Add(Line(label, s.Kind, v));
+                }
+            }
+            else if (device is not null)
+            {
+                var kinds = first.Part == TrayPart.Board ? [SensorKind.Fan, SensorKind.Temperature, SensorKind.Fan] : ReadingCards.DeviceKinds;
+                var used = new HashSet<string>(clickedIds);
+                foreach (var kind in kinds)
+                {
+                    if (rows.Count >= ReadingCards.MaxRows) break;
+                    foreach (var m in device.Sensors.Where(m => m.Kind == kind && !used.Contains(m.Id)))
+                    {
+                        if (sensors.ReadSensor(m.Id) is not { } s || s.Value is not double v) continue;
+                        used.Add(m.Id);
+                        rows.Add(Line(SensorWords.Show(m.Name), kind, v));
+                        break;
+                    }
+                }
+            }
+
+            // What uses the part; a fan, what it cools.
+            var (by, appsTitle) = ReadingCards.Apps(first.Part);
+            var apps = CardApps(by);
+            var cools = new List<CardLine>();
+            if (group.Any(r => r.Kind is SensorKind.Fan or SensorKind.Control))
+                foreach (var (id, label) in new[] { (cpuTempId, "CPU"), (gpuTempId, "GPU") })
+                    if (id is not null && sensors.ReadSensor(id) is { } s && s.Value is double v) cools.Add(Line(label, SensorKind.Temperature, v));
+
+            var page = ReadingCards.Page(first.Part, first.Kind);
+            sections.Add(new CardSection(TrayParts.Label(first.Part), first.Hardware, first.NameOn(light, gray), [.. group.Select(Big)], rows,
+                // Its app list kept even while nothing uses the part ("Nothing much right now"): dropping it when the last app
+                // went moved the button up the card (the user: "why did open temperature shift to top").
+                by != Core.CardApps.None ? appsTitle : null, apps, cools.Count > 0 ? Lang.T("What the fans are cooling now") : null, cools, ReadingCards.Button(page), page));
+        }
+        return sections;
+
+        // A clicked reading, big: now, its last minutes, and today's highest (CPU and GPU temperatures with when and what ran).
+        CardBig Big(TrayReading r)
+        {
+            var history = _trayHistory.TryGetValue(r.Id, out var q) ? q.ToList() : [];
+            var oldest = history.Count > 0 ? DateTime.Now - TimeSpan.FromMilliseconds(Environment.TickCount64 - history[0].Ms) : DateTime.Now;
+            string? highest = null;
+            if (ReadingCards.ShowsHighest(r.Part, r.Kind))
+            {
+                if (r.Id == cpuTempId && today?.CpuPeak is double cp) highest = Peak(cp, today.CpuPeakTime, today.CpuPeakApp);
+                else if (r.Id == gpuTempId && today?.GpuPeak is double gp) highest = Peak(gp, today.GpuPeakTime, today.GpuPeakApp);
+                else if (extremes.TryGetValue(r.Id, out var mm) && mm.Length > 1 && double.IsFinite(mm[1])) highest = Lang.T($"Highest today {Units.StripText(r.Kind, mm[1])}");
+            }
+            return new CardBig(r.Name, r.Kind, r.Value, r.NumberOn(light, gray), history, ReadingCards.Span(oldest, DateTime.Now),
+                ReadingCards.LowAvgHigh(r.Kind, [.. history.Select(p => p.Value)]), highest);
+        }
+
+        static string Peak(double value, long? time, string? app)
+        {
+            string v = Units.StripText(SensorKind.Temperature, value);
+            if (time is not long t) return Lang.T($"Highest today {v}");
+            string at = TimeText.Time(DateTimeOffset.FromUnixTimeSeconds(t).LocalDateTime);
+            return app is { Length: > 0 } ? Lang.T($"Highest today {v} at {at}, while {app} ran") : Lang.T($"Highest today {v} at {at}");
+        }
+    }
+
+    /// <summary>The apps using a part most (sampler thread), from the latest process pass or, for the network, its live rates.</summary>
+    private List<CardApp> CardApps(CardApps by)
+    {
+        var snap = _lastProcs;
+        string Name(string exe) => _apps.Describe(exe, snap?.Apps.TryGetValue(exe, out var a) == true ? a.FirstPid : 0).Name;
+        IEnumerable<CardApp> list = by switch
+        {
+            Core.CardApps.Cpu when snap is not null => snap.Apps.Values.Where(a => a.Cpu >= 0.1).OrderByDescending(a => a.Cpu)
+                .Take(ReadingCards.MaxApps).Select(a => new CardApp(Name(a.Exe), a.Cpu, Units.StripText(SensorKind.Load, a.Cpu))),
+            Core.CardApps.Memory when snap is not null => snap.Apps.Values.OrderByDescending(a => a.MemMB)
+                .Take(ReadingCards.MaxApps).Select(a => new CardApp(Name(a.Exe), a.MemMB, Units.Megabytes(a.MemMB))),
+            Core.CardApps.Disk when snap is not null => snap.Apps.Values.Where(a => a.Disk >= 1024).OrderByDescending(a => a.Disk)
+                .Take(ReadingCards.MaxApps).Select(a => new CardApp(Name(a.Exe), a.Disk, Units.Speed(a.Disk))),
+            Core.CardApps.Gpu when snap is not null => snap.Gpu.Where(kv => kv.Value >= 1).OrderByDescending(kv => kv.Value)
+                .Take(ReadingCards.MaxApps).Select(kv => new CardApp(Name(kv.Key), kv.Value, Units.StripText(SensorKind.Load, kv.Value))),
+            Core.CardApps.Network => _tracker.NetNow.Apps.Where(a => a.Down + a.Up >= 1024).OrderByDescending(a => a.Down + a.Up)
+                .Take(ReadingCards.MaxApps).Select(a => new CardApp(a.Name, a.Down + a.Up, Units.Speed(a.Down + a.Up))),
+            _ => [],
+        };
+        return [.. list];
+    }
+
+    /// <summary>
+    /// The taskbar's sensors (sampler thread): the name given on All sensors, else the sensor's own; each one's own style
+    /// and size (else the taskbar's style, fitted to it); the reading its look is drawn from (Together) with its value; a
+    /// CPU's cores for Each core. The network's speeds are RigSight's own count for the whole PC, as on the Network page.
+    /// </summary>
     private List<TrayReading> TrayReadingsFor(RigsightSettings settings)
     {
         var list = new List<TrayReading>(settings.TraySensors.Count);
+        var alone = settings.TrayAlone.ToHashSet();
         foreach (var id in settings.TraySensors)
         {
-            list.Add(_sensors.ReadSensor(id) is { } r
-                ? new TrayReading(id, settings.SensorLabels.GetValueOrDefault(id) ?? SensorWords.Show(r.Name), r.Kind, r.Value, TrayParts.PartOf(r.HardwareType), r.HardwareName,
-                    TrayParts.ShortLabel(r.Kind, r.Name, TrayParts.PartOf(r.HardwareType), settings.SensorLabels.GetValueOrDefault(id)),
-                    TrayColors.NumberOf(settings, id), TrayColors.NameOf(settings, id))
-                : new TrayReading(id, _sensorsReady ? Lang.T("Not found on this PC") : Lang.T("Starting…"), SensorKind.Factor, null, TrayPart.Other, ""));
+            string? own = settings.SensorLabels.GetValueOrDefault(id);
+            var style = settings.TrayStyles.GetValueOrDefault(id, settings.TrayStyle);
+            var size = settings.TraySizes.GetValueOrDefault(id);
+            var look = settings.TrayLooks.GetValueOrDefault(id);
+            TrayReading reading;
+            if (TrayParts.IsNet(id))
+            {
+                var net = _netTrace is not null || _cardsBefore is not null ? _tracker.NetNow : null;
+                double? down = net is null || net.Stalled ? null : net.Down, up = net is null || net.Stalled ? null : net.Up;
+                string name = own ?? SensorWords.Show(TrayParts.NetName(id));
+                reading = new TrayReading(id, name, SensorKind.Throughput, id == TrayParts.NetUp ? up : down, TrayPart.Network, SensorWords.Show(TrayParts.NetHardware),
+                    own?.Trim() is { Length: > 0 and <= TrayParts.MaxShortLabel } o ? o : id == TrayParts.NetUp ? Lang.T("Up") : Lang.T("Down"),
+                    TrayColors.NumberOf(settings, id), TrayColors.NameOf(settings, id), look, TrayColors.TileOf(settings, id),
+                    OwnShort: own?.Trim() is { Length: > 0 and <= TrayParts.MaxShortLabel }, Alone: alone.Contains(id), Style: style, Size: size, Gray: TrayParts.GrayOf(settings, id), Tiles: TrayParts.TilesOf(settings, id), Letters: TrayParts.LettersOf(settings, id), PairNext: TrayParts.PairNextOf(settings, id), GraphBehind: settings.TrayGraphsBehind.Contains(id),
+                    Second: id == TrayParts.NetBoth ? up : null);
+            }
+            else if (_sensors.ReadSensor(id) is { } r)
+            {
+                var part = TrayParts.PartOf(r.HardwareType);
+                // Together: the look drawn from another reading (its kind and value), the number this one's.
+                string? from = settings.TrayLookFrom.GetValueOrDefault(id);
+                var source = from is null ? null : _sensors.ReadSensor(from);
+                float[]? cores = look == TrayLook.Cores && source is null && TrayParts.IsCpuTotal(r.Kind, part, r.Name) ? CoresOf(id) : null;
+                reading = new TrayReading(id, own ?? SensorWords.Show(r.Name), r.Kind, r.Value, part, r.HardwareName,
+                    TrayParts.ShortLabel(r.Kind, r.Name, part, own),
+                    TrayColors.NumberOf(settings, id), TrayColors.NameOf(settings, id), look, TrayColors.TileOf(settings, id),
+                    OwnShort: own?.Trim() is { Length: > 0 and <= TrayParts.MaxShortLabel }, Alone: alone.Contains(id), Style: style, Size: size, Gray: TrayParts.GrayOf(settings, id), Tiles: TrayParts.TilesOf(settings, id), Letters: TrayParts.LettersOf(settings, id), PairNext: TrayParts.PairNextOf(settings, id), GraphBehind: settings.TrayGraphsBehind.Contains(id),
+                    LookId: source is null ? null : from, LookKind: source?.Kind, LookValue: source?.Value, Cores: cores);
+            }
+            else reading = new TrayReading(id, _sensorsReady ? Lang.T("Not found on this PC") : Lang.T("Starting…"), SensorKind.Factor, null, TrayPart.Other, "",
+                Alone: alone.Contains(id), Style: style, Size: size, Gray: TrayParts.GrayOf(settings, id), Tiles: TrayParts.TilesOf(settings, id), Letters: TrayParts.LettersOf(settings, id), PairNext: TrayParts.PairNextOf(settings, id), GraphBehind: settings.TrayGraphsBehind.Contains(id));
+            list.Add(reading);
         }
         return list;
     }
 
-    private void PublishToUi(KeyValues k, bool fullscreen, string? alert)
+    /// <summary>Each CPU's cores' load sensors (by its total's id), found once per list of sensors.</summary>
+    private (List<HardwareMeta> Schema, Dictionary<string, string[]> Map) _cores = ([], []);
+
+    /// <summary>A CPU's cores' loads now, 0 to 1, in their order (null: none listed), for Each core.</summary>
+    private float[]? CoresOf(string totalId)
+    {
+        var schema = _sensors.Schema;
+        if (!ReferenceEquals(schema, _cores.Schema)) _cores = (schema, []);
+        if (!_cores.Map.TryGetValue(totalId, out var ids))
+        {
+            var hardware = schema.FirstOrDefault(h => h.Sensors.Any(s => s.Id == totalId));
+            ids = hardware is null ? [] : [.. hardware.Sensors.Where(s => TrayParts.IsCoreLoad(s.Kind, s.Name)).Select(s => s.Id)];
+            _cores.Map[totalId] = ids;
+            Log.Write("taskbar", $"Cores for {totalId}: {ids.Length} ({string.Join(", ", hardware?.Sensors.Where(s => TrayParts.IsCoreLoad(s.Kind, s.Name)).Select(s => s.Name) ?? [])})");
+        }
+        if (ids.Length == 0) return null;
+        return [.. ids.Select(c => _sensors.ReadSensor(c)?.Value is double v ? (float)Math.Clamp(v / 100, 0, 1) : 0f)];
+    }
+
+    private void PublishToUi(KeyValues k, bool fullscreen, (string Title, string Body)? alert)
     {
         var settings = _settings;
         var trayReadings = TrayReadingsFor(settings);
+        RememberTray(trayReadings);
+        // A reading card that's open: its readings again, a tick later.
+        string? cardKey = _card.Key;
+        var cardSections = cardKey is null ? null : CardFor(cardKey, trayReadings, settings, DarkMenuRenderer.Light);
         var activity = _tracker.Activity;
         // Only tiles and graphs draw history lines; skip scanning it otherwise.
         var historyOf = settings.Widgets.Where(w => w.Enabled && WidgetCatalog.LayoutOf(w) is WidgetLayout.Tiles or WidgetLayout.Graph)
@@ -1082,10 +1329,13 @@ internal sealed class AgentContext : ApplicationContext
         {
             long t0 = Stopwatch.GetTimestamp();
             _tray.Update(tip, health);
-            // In the taskbar where it can be (Windows 11), else as icons.
-            bool inStrip = settings.TrayStyle == TrayStyle.Strip && _taskbarStrip.Update(trayReadings, settings.TrayGrayscale, settings.TraySide, settings.TrayGraphs);
-            if (settings.TrayStyle != TrayStyle.Strip) _taskbarStrip.Hide();
-            _trayReadings.Update(inStrip ? [] : trayReadings, settings.TrayStyle == TrayStyle.Grouped, settings.TrayGrayscale);
+            // In the taskbar, drawn by RigSight in any style, where it can be (Windows 11); else as Windows' own tray icons.
+            bool inStrip = _taskbarStrip.Update(trayReadings, settings.TrayGrayscale, settings.TraySide, settings.TrayStyle, settings.TrayTiles, settings.TrayWidth,
+                settings.TrayLetterNames, settings.TraySpeedBits, settings.TrayGap);
+            // Windows 10's own tray icons: an icon per part as before 1.3, or with any pair saved since.
+            _trayReadings.Update(inStrip ? [] : trayReadings, settings.TrayStyle == TrayStyle.Grouped || settings.TrayPairs is { Count: > 0 }, settings.TrayGrayscale, settings.TrayTiles);
+            _trayWaiting = _taskbarStrip.Waiting;
+            if (cardKey is not null && cardSections is { Count: > 0 }) _card.Renew(cardKey, cardSections);
             // Asked of Windows here, on this tick and for the same window, so Alt+Enter between windowed and borderless
             // is caught on the next tick (only with a game in front: a few cheap calls, no new polling).
             var front = gameInFront ? Win32.GetForegroundWindow() : IntPtr.Zero;
@@ -1099,8 +1349,8 @@ internal sealed class AgentContext : ApplicationContext
             _overlay.Update(data);
             _notices.SetFullscreen(otherFullscreen);
             if (Profiling) RunOnSampler(() => Measure("ui:tray+widgets", t0));
-            if (alert is not null)
-                _notices.Show(new Notice(NoticeKind.Alert, Lang.T("Running hot"), alert, activity.Path, "temperatures", Urgent: true));
+            if (alert is { } hot)
+                _notices.Show(new Notice(NoticeKind.Alert, hot.Title, hot.Body, activity.Path, "temperatures", Urgent: true));
         }, null);
     }
 
@@ -1155,6 +1405,7 @@ internal sealed class AgentContext : ApplicationContext
         {
             _justTurnedOn = true;
             RunOnSampler(() => _connection.Settle(TimeUtil.NowUnix()));
+            _line?.FindAgain();
         }
         else if (e.Mode == PowerModes.Suspend)
             RunOnSampler(() =>
@@ -1175,6 +1426,7 @@ internal sealed class AgentContext : ApplicationContext
         _addressesChanged = false;
         _connection.Settle(TimeUtil.NowUnix());
         if (_isAdmin) _netTrace = NetworkTrace.Start(NetTraceName, () => _addresses);
+        _line = LineCheck.Start(_settings.Tracking.PingChecks);
         MemoryAt("network");
     }
 
@@ -1229,6 +1481,7 @@ internal sealed class AgentContext : ApplicationContext
     private void CheckNetworkTrace()
     {
         KeepOngoingDrop();
+        WriteLineMinutes();
         if (!_isAdmin) return;
         long now = TimeUtil.NowUnix();
         // No trace at all (Windows wouldn't start one, or ended it): there are no events to count, only the remedies.
@@ -1269,8 +1522,26 @@ internal sealed class AgentContext : ApplicationContext
         _traceWatch.Restarted();
     }
 
-    private void OnAddressChanged(object? sender, EventArgs e) => _addressesChanged = true;
-    private void OnAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e) => _addressesChanged = true;
+    private void OnAddressChanged(object? sender, EventArgs e)
+    {
+        _addressesChanged = true;
+        _line?.FindAgain();
+    }
+
+    private void OnAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
+    {
+        _addressesChanged = true;
+        _line?.FindAgain();
+    }
+
+    /// <summary>Sampler thread, each minute: the line check's whole minutes into the history (none while tracking is paused).</summary>
+    private void WriteLineMinutes()
+    {
+        if (_line is null) return;
+        var minutes = _line.TakeMinutes(TimeUtil.NowUnix());
+        if (_settings.Tracking.IsPaused(TimeUtil.NowUnix())) return;
+        foreach (var m in minutes) _db.WriteNetPing(m);
+    }
 
     /// <summary>Sampler thread, each second: what each app moved since the last time, and whether the internet is there.</summary>
     private void SampleNetwork(double seconds)
@@ -1293,11 +1564,33 @@ internal sealed class AgentContext : ApplicationContext
                 while (_netHistory.Count > 60) _netHistory.Dequeue();
             }
         }
-        if (_connection.Observe(TimeUtil.NowUnix(), NetAdapters.WindowsSeesInternet(), _addresses.CardConnected, internetDown) is { } drop)
+        long nowTs = TimeUtil.NowUnix();
+        var ended = _connection.Observe(nowTs, NetAdapters.WindowsSeesInternet(), _addresses.CardConnected, internetDown);
+        if (ended is { } drop)
         {
             Log.Write("network", $"The internet dropped for {drop.Seconds} s ({drop.Kind})");
             _tracker.OnDrop(drop);
         }
+        NoticeDrops(nowTs, ended);
+    }
+
+    /// <summary>
+    /// Sampler thread, each second: tell the person the internet dropped and came back (when Settings says so). The card's
+    /// kind is read every half minute while connected, so a drop names what was lost even with the card gone.
+    /// </summary>
+    private void NoticeDrops(long now, NetDrop? ended)
+    {
+        var open = _connection.Current(now);
+        if (open is null && now - _cardKindAt >= 30)
+        {
+            _cardKindAt = now;
+            if (NetAdapters.Current()?.Kind is { } kind) _cardKind = kind;
+        }
+        if (_dropNotices.Tick(now, open, ended, _cardKind, _line?.RouterAnswered(now - 10)) is not { } said) return;
+        Log.Write("network", $"Notice: {said.Title} ({said.Body})" + (_settings.Alerts.InternetDrops ? "" : ", not shown: drop alerts are off"));
+        if (!_settings.Alerts.InternetDrops) return;
+        string day = TimeUtil.FromUnix(said.At).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        _ui.Post(_ => _notices.Show(new Notice(said.Good ? NoticeKind.InternetBack : NoticeKind.Internet, said.Title, said.Body, Page: "network", Arg: day, Urgent: true)), null);
     }
 
     /// <summary>
@@ -1322,14 +1615,9 @@ internal sealed class AgentContext : ApplicationContext
         });
         if (report is null || !report.HasData || report.ActiveSec < 300) return;
 
-        var parts = new List<string> { Lang.T($"Active {Units.Duration(report.ActiveSec)}") };
         var top = report.Apps.FirstOrDefault(a => a.ActiveSec > 0 && a.Category != AppCategory.System);
-        if (top is not null) parts.Add($"{top.Name} {Units.Duration(top.ActiveSec)}");
-        if (report.CpuTempPeak is { } cpu) parts.Add(Lang.T($"CPU peak {Units.TempShort(cpu.Value)}"));
-        if (report.GpuTempPeak is { } gpu) parts.Add(Lang.T($"GPU peak {Units.TempShort(gpu.Value)}"));
-
-        string text = string.Join("  ·  ", parts) + ". " + Wording.FullPicture;
-        _ui.Post(_ => _notices.Show(new Notice(NoticeKind.Recap, DailyRecap.Title(day, today), text, Page: "reports", Arg: DailyRecap.Key(day))), null);
+        var (title, text) = NoticeWords.Recap(day, today, report.ActiveSec, top?.Name, top?.ActiveSec ?? 0, report.CpuTempPeak?.Value, report.GpuTempPeak?.Value);
+        _ui.Post(_ => _notices.Show(new Notice(NoticeKind.Recap, title, text, Page: "reports", Arg: DailyRecap.Key(day))), null);
     }
 
     private DateTime _rewindsChecked;
@@ -1348,6 +1636,13 @@ internal sealed class AgentContext : ApplicationContext
         List<Core.Rewind.RewindFacts> made;
         try { made = Core.Rewind.RewindStore.MakeDue(_db, settings, now); }
         catch (Exception ex) { Log.Error("rewind", ex); return; }
+        if (made.Count > 0)
+        {
+            // A month's history read once a month: given back, as after the long crash scan (the 2026-11-03 gate: 146 MB
+            // private with October's just made, still 116 MB 25 s after, against 62 when none is due).
+            MemoryAt("rewind made");
+            CompactMemory();
+        }
         if (made.Count == 0 || !settings.Rewind.Notify || _pipe.ClientCount > 0) return;
         var f = made[0];
         // Told now: the app shows them as its sidebar line, not full screen again (2026-10-30: the first rewind, 1 Nov,
@@ -1392,15 +1687,15 @@ internal sealed class AgentContext : ApplicationContext
                         await Task.Delay(CrashNotices.SecondLook);
                         finding = await OnSampler(() => { ScanCrashes(); return FindingOf(crash); }) ?? finding;
                     }
-                    string body = CrashNotices.Body(finding, row.IsGame, row.ActiveSec);
+                    string body = NoticeWords.AppDown(finding, row.IsGame, row.ActiveSec);
                     // The title says what Windows recorded, which is never in doubt: "Dota 2 crashed", "Chrome froze".
                     _ui.Post(_ => _notices.Show(new Notice(NoticeKind.Crash, Wording.Title(crash.Kind, name), body,
                         app.Path, "crashes", crash.Time.Ticks.ToString())), null);
                     return;
                 }
                 if (!summaryWanted) return;
-                string text = SessionText(row.ActiveSec, row.CpuTempMax, row.GpuTempMax);
-                _ui.Post(_ => _notices.Show(new Notice(NoticeKind.Session, SessionTitle(name), text, app.Path, "games", app.Exe)), null);
+                var (title, text) = NoticeWords.Session(name, row.ActiveSec, row.CpuTempMax, row.GpuTempMax);
+                _ui.Post(_ => _notices.Show(new Notice(NoticeKind.Session, title, text, app.Path, "games", app.Exe)), null);
             }
             catch (Exception ex)
             {
@@ -1409,15 +1704,6 @@ internal sealed class AgentContext : ApplicationContext
         });
     }
 
-    /// <summary>A game session's notification title: "Dota 2 session".</summary>
-    private static string SessionTitle(string name) => Lang.T($"{name} session");
-
-    /// <summary>A game session's notification: "Played for 2h 14m. CPU peak 71°, GPU peak 68°. Click for the full picture."</summary>
-    private static string SessionText(double activeSec, double? cpuPeak, double? gpuPeak)
-    {
-        string played = Units.Duration(activeSec), cpu = Units.TempShort(cpuPeak), gpu = Units.TempShort(gpuPeak);
-        return Lang.T($"Played for {played}. CPU peak {cpu}, GPU peak {gpu}.") + " " + Wording.FullPicture;
-    }
 
     /// <summary>Runs <paramref name="work"/> on the sampler thread (the only one that touches the database) and hands back what it returns.</summary>
     private Task<T> OnSampler<T>(Func<T> work)
@@ -1586,10 +1872,10 @@ internal sealed class AgentContext : ApplicationContext
                 // A graphics card that hangs again and again within minutes: the first is said, the rest are on the page.
                 if (e.Kind == CrashKind.GpuDriverReset && !_crashNotices.Allow("graphics driver", e.Time)) continue;
                 var ex = CrashExplainer.Explain(e);
-                // The title by its kind ("Sudden shut-off"), the event with its time and cause under it.
-                string said = findings.TryGetValue(e.Id, out var finding) ? finding.Told(e.Time.ToString(TimeText.Fit("ddd h:mm tt"))) : $"{TimeText.At(e.Time, "ddd h:mm tt")}. {ex.Reason}";
-                _ui.Post(_ => _notices.Show(new Notice(NoticeKind.Crash, Wording.Title(e.Kind, ""),
-                    $"{said} {Wording.FullPicture}", Page: "crashes", Arg: e.Time.Ticks.ToString())), null);
+                // The title says what happened ("Your PC shut off suddenly"); when and why under it, not the event again.
+                string said = NoticeWords.PcDownBody(e.Time, DateTime.Now, findings.GetValueOrDefault(e.Id), ex.Reason);
+                _ui.Post(_ => _notices.Show(new Notice(NoticeKind.Crash, NoticeWords.PcDownTitle(e.Kind), said,
+                    Page: "crashes", Arg: e.Time.Ticks.ToString())), null);
             }
         }
         catch (Exception ex)
@@ -1762,14 +2048,13 @@ internal sealed class AgentContext : ApplicationContext
         var activity = _tracker.Activity;
         Notice notice = kind switch
         {
-            "alert" => new(NoticeKind.Alert, Lang.T("Running hot"),
-                AlertMonitor.Message([$"GPU {Units.TempShort(s.Alerts.GpuLimit + 3)}"], s.Alerts.SustainSeconds, "Cyberpunk 2077"), Page: "temperatures", Urgent: true),
-            "session" => new(NoticeKind.Session, SessionTitle("Dota 2"), SessionText(2 * 3600 + 14 * 60, 71, 68), activity.Path, "games"),
+            "alert" => NoticeWords.Running([new("GPU", s.Alerts.GpuLimit + 3, s.Alerts.GpuLimit)], s.Alerts.SustainSeconds, "Cyberpunk 2077") is var (aTitle, aBody)
+                ? new(NoticeKind.Alert, aTitle, aBody, Page: "temperatures", Urgent: true) : null!,
+            "session" => NoticeWords.Session("Dota 2", 2 * 3600 + 14 * 60, 71, 68) is var (sTitle, sBody)
+                ? new(NoticeKind.Session, sTitle, sBody, activity.Path, "games") : null!,
             "crash" => new(NoticeKind.Crash, Wording.Title(CrashKind.AppCrash, "Dota 2"), CrashNotices.Sample, activity.Path, "crashes"),
-            _ => new(NoticeKind.Recap, Lang.T("Yesterday on your PC"),
-                string.Join("  ·  ", Lang.T($"Active {Units.Duration(6 * 3600 + 12 * 60)}"), $"Dota 2 {Units.Duration(3 * 3600 + 5 * 60)}",
-                    Lang.T($"CPU peak {Units.TempShort(78)}"), Lang.T($"GPU peak {Units.TempShort(72)}")) + ". " + Wording.FullPicture,
-                Page: "reports", Arg: "yesterday"),
+            _ => NoticeWords.Recap(DateTime.Today.AddDays(-1), DateTime.Today, 6 * 3600 + 12 * 60, "Dota 2", 3 * 3600 + 5 * 60, 78, 72) is var (rTitle, rBody)
+                ? new(NoticeKind.Recap, rTitle, rBody, Page: "reports", Arg: "yesterday") : null!,
         };
         _notices.Show(notice with { Title = Lang.T($"{notice.Title} (preview)") }, bypassQuiet: true);
     }
@@ -2009,9 +2294,26 @@ internal sealed class AgentContext : ApplicationContext
     /// A line in the log for a change to what's shown or tracked (the taskbar readings, the overlay's sensors, the
     /// widgets on, the apps left out), saying where it came from: a list that vanished can be traced.
     /// </summary>
-    /// <summary>The taskbar readings' own colours in one line ("id=number/name; ..."), to compare and to log.</summary>
+    /// <summary>The taskbar readings' own colours in one line ("id=number/name/tile; ..."), to compare and to log.</summary>
     private static string TrayColorsText(RigsightSettings s) =>
-        string.Join("; ", s.TrayColors.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value.Number ?? "-"}/{kv.Value.Name ?? "-"}"));
+        string.Join("; ", s.TrayColors.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value.Number ?? "-"}/{kv.Value.Name ?? "-"}/{kv.Value.Tile ?? "-"}"));
+
+    /// <summary>The taskbar readings' looks in one line ("id=Area; ..."), to compare and to log.</summary>
+    private static string TrayLooksText(RigsightSettings s) =>
+        string.Join("; ", s.TrayLooks.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}"));
+
+    /// <summary>Each reading's own style, size, look source, pairs, grayscale, tiles and names, and the speeds' unit, in one line, to compare and to log.</summary>
+    private static string TrayOwnText(RigsightSettings s) =>
+        "styles " + string.Join("; ", s.TrayStyles.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}"))
+        + " | sizes " + string.Join("; ", s.TraySizes.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}"))
+        + " | looks from " + string.Join("; ", s.TrayLookFrom.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}"))
+        + (s.TraySpeedBits ? " | speeds in bits" : " | speeds in bytes")
+        + " | pairs " + (s.TrayPairs is null ? "as before 1.3" : string.Join(", ", s.TrayPairs))
+        + " | grayscale " + string.Join("; ", s.TrayGrayOf.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}"))
+        + " | tiles " + string.Join("; ", s.TrayTilesOf.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}"))
+        + " | one letter " + string.Join(", ", s.TrayLetters)
+        + " | room between " + s.TrayGap
+        + " | graphs behind " + string.Join(", ", s.TrayGraphsBehind);
 
     private static void LogSettingsChanges(RigsightSettings before, RigsightSettings after, string from)
     {
@@ -2019,8 +2321,14 @@ internal sealed class AgentContext : ApplicationContext
         Note("taskbar readings", before.TraySensors.Count, after.TraySensors.Count);
         if (before.TrayStyle != after.TrayStyle) Log.Write("settings", $"taskbar style: {before.TrayStyle} -> {after.TrayStyle} (from the {from})");
         if (before.TraySide != after.TraySide) Log.Write("settings", $"taskbar side: {before.TraySide} -> {after.TraySide} (from the {from})");
-        Note("taskbar graphs", before.TrayGraphs.Count, after.TrayGraphs.Count);
-        if (TrayColorsText(before) != TrayColorsText(after)) Log.Write("settings", $"taskbar colours: {TrayColorsText(before)} -> {TrayColorsText(after)} (from the {from})");
+        if (TrayLooksText(before) != TrayLooksText(after)) Log.Write("settings", $"taskbar looks: {TrayLooksText(before)} -> {TrayLooksText(after)} (from the {from})");
+        if (TrayOwnText(before) != TrayOwnText(after)) Log.Write("settings", $"taskbar readings' own: {TrayOwnText(before)} -> {TrayOwnText(after)} (from the {from})");
+        if (before.TrayTiles != after.TrayTiles) Log.Write("settings", $"taskbar tiles: {before.TrayTiles} -> {after.TrayTiles} (from the {from})");
+        if (before.TrayWidth != after.TrayWidth) Log.Write("settings", $"taskbar width: {before.TrayWidth} -> {after.TrayWidth} (from the {from})");
+        if (before.TrayLetterNames != after.TrayLetterNames) Log.Write("settings", $"taskbar names as one letter: {before.TrayLetterNames} -> {after.TrayLetterNames} (from the {from})");
+        if (!before.TrayAlone.SequenceEqual(after.TrayAlone))
+            Log.Write("settings", $"taskbar readings on their own: {string.Join(", ", before.TrayAlone)} -> {string.Join(", ", after.TrayAlone)} (from the {from})");
+        if (TrayColorsText(before) != TrayColorsText(after)) Log.Write("settings", $"taskbar colors: {TrayColorsText(before)} -> {TrayColorsText(after)} (from the {from})");
         Note("overlay sensors", before.Overlay.Sensors.Count, after.Overlay.Sensors.Count);
         // A user's overlay background kept coming back after he had set it to none (Oct 2026), with nothing to say what moved it.
         Note("overlay background (%)", (int)Math.Round(before.Overlay.BackgroundOpacity * 100), (int)Math.Round(after.Overlay.BackgroundOpacity * 100));
@@ -2037,16 +2345,20 @@ internal sealed class AgentContext : ApplicationContext
     private void MutateSettings(Action<RigsightSettings> change, RigsightSettings? replaceWith)
     {
         RigsightSettings updated;
-        bool yieldChanged, trayChanged;
+        bool yieldChanged, trayChanged, pingChanged;
         lock (_settingsLock)
         {
             var current = _settings;
             updated = replaceWith ?? current.Clone();
             change(replaceWith is null ? updated : current);
             yieldChanged = updated.YieldToHardwareApps != current.YieldToHardwareApps;
+            pingChanged = updated.Tracking.PingChecks != current.Tracking.PingChecks;
             trayChanged = updated.TrayStyle != current.TrayStyle || updated.TrayGrayscale != current.TrayGrayscale
-                          || updated.TraySide != current.TraySide || !updated.TrayGraphs.SequenceEqual(current.TrayGraphs)
-                          || !updated.TraySensors.SequenceEqual(current.TraySensors) || TrayColorsText(updated) != TrayColorsText(current);
+                          || updated.TraySide != current.TraySide || TrayLooksText(updated) != TrayLooksText(current)
+                          || updated.TrayTiles != current.TrayTiles || updated.TrayWidth != current.TrayWidth
+                          || updated.TrayLetterNames != current.TrayLetterNames || !updated.TrayAlone.SequenceEqual(current.TrayAlone)
+                          || !updated.TraySensors.SequenceEqual(current.TraySensors) || TrayColorsText(updated) != TrayColorsText(current)
+                          || TrayOwnText(updated) != TrayOwnText(current);
             LogSettingsChanges(current, updated, replaceWith is null ? "agent" : "app");
             _settings = updated;
             SettingsStore.Save(updated);
@@ -2058,6 +2370,13 @@ internal sealed class AgentContext : ApplicationContext
         if (updated.Language != Lang.Code) LanguageStore.Apply(updated.Language);
         DarkMenuRenderer.Theme = updated.Theme;
         RunOnSampler(() => _tracker.SetSettings(updated));
+        // Ping checks turned on or off: at once, and the moment written down (the Network page marks it on its graph).
+        if (pingChanged && _line is { } line)
+        {
+            line.Enabled = updated.Tracking.PingChecks;
+            bool on = updated.Tracking.PingChecks;
+            RunOnSampler(() => _db.WriteNetPingSwitch(TimeUtil.NowUnix(), on));
+        }
         // A reading added to or removed from the taskbar, or another way of showing them: there now, not at the next read.
         if (trayChanged) RunOnSampler(() => _sensorsNow = true);
         // Stepping aside turned on or off: scan again now, with or without the parts those programs control.
@@ -2126,11 +2445,11 @@ internal sealed class AgentContext : ApplicationContext
         var (title, body) = _overlay.RtssState switch
         {
             "running" => (Lang.T($"Restart {app} to see the overlay"),
-                Lang.T($"{app} was already open when RivaTuner started, so RivaTuner isn't drawing in it yet. Restart it and the overlay will show.")),
-            "stopped" => (Lang.T("The overlay can't show in fullscreen games"),
-                Lang.T("RivaTuner isn't running, and fullscreen games need it for the overlay. Start it from the Overlay page, then restart the game.")),
-            _ => (Lang.T("The overlay can't show in fullscreen games"),
-                Lang.T("Fullscreen games need RivaTuner Statistics Server (free) for the overlay. Install it from the Overlay page, then restart the game.")),
+                Lang.T("It was already open when RivaTuner started, so RivaTuner isn't drawing in it yet.")),
+            "stopped" => (Lang.T("The overlay can't show in this game"),
+                Lang.T("Fullscreen games need RivaTuner, and it isn't running. Start it from the Overlay page, then restart the game.")),
+            _ => (Lang.T("The overlay can't show in this game"),
+                Lang.T("Fullscreen games need RivaTuner Statistics Server (free). Install it from the Overlay page, then restart the game.")),
         };
         _notices.Show(new Notice(NoticeKind.Overlay, title, body, _tracker.Activity.Path, "overlay"));
     }
@@ -2319,7 +2638,7 @@ internal sealed class AgentContext : ApplicationContext
         _sampler.Join(5000);
 
         // Each step is independent: a failure in one must never leave the agent half-closed.
-        foreach (var step in new Action[] { _pipe.Dispose, _widgets.CloseAll, _overlay.Dispose, _askHotkey.Dispose, _notices.CloseAll, _trayReadings.Dispose, _taskbarStrip.Dispose, _tray.Dispose })
+        foreach (var step in new Action[] { _pipe.Dispose, _widgets.CloseAll, _overlay.Dispose, _askHotkey.Dispose, _notices.CloseAll, _trayReadings.Dispose, _card.Dispose, _taskbarStrip.Dispose, _tray.Dispose })
         {
             try { step(); }
             catch (Exception ex) { Log.Error("agent", ex); }

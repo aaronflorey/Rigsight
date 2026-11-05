@@ -137,12 +137,17 @@ public class TrayReadingsTests
     {
         Assert.Equal(((byte)91, (byte)140, (byte)255), TrayParts.Color(TrayPart.Cpu));
         Assert.Equal(((byte)34, (byte)211, (byte)238), TrayParts.Color(TrayPart.Gpu));
-        // No part is green, amber or red (those say how a reading is doing): blue is always the strongest of the three.
-        Assert.All(new[] { TrayPart.Cpu, TrayPart.Gpu, TrayPart.Ram }.SelectMany(p => new[] { TrayParts.Color(p), TrayParts.Color(p, light: true) }),
+        // Since 1.2 drives are pink and the network the Network page's sky blue (they were grey).
+        Assert.Equal(((byte)244, (byte)114, (byte)182), TrayParts.Color(TrayPart.Drive));
+        Assert.Equal(((byte)56, (byte)189, (byte)248), TrayParts.Color(TrayPart.Network));
+        // No part is green, amber or red (those say how a reading is doing): blue is always the strongest of the three,
+        // but for the drives' pink, whose red leads with more blue than green.
+        Assert.All(new[] { TrayPart.Cpu, TrayPart.Gpu, TrayPart.Ram, TrayPart.Network }.SelectMany(p => new[] { TrayParts.Color(p), TrayParts.Color(p, light: true) }),
             c => Assert.True(c.B > c.R && c.B > c.G, $"{c} isn't a blue, cyan or purple"));
+        Assert.All(new[] { TrayParts.Color(TrayPart.Drive), TrayParts.Color(TrayPart.Drive, light: true) }, c => Assert.True(c.B > c.G, $"{c} isn't a pink"));
         Assert.NotEqual(TrayParts.Color(TrayPart.Cpu), TrayParts.Color(TrayPart.Cpu, light: true)); // deeper on a light taskbar
-        Assert.Equal(TrayParts.Color(TrayPart.Drive), TrayParts.Color(TrayPart.Other));
-        Assert.Equal(3, new[] { TrayPart.Cpu, TrayPart.Gpu, TrayPart.Ram }.Select(p => TrayParts.Color(p)).Distinct().Count());
+        Assert.Equal(TrayParts.Color(TrayPart.Board), TrayParts.Color(TrayPart.Other));
+        Assert.Equal(5, new[] { TrayPart.Cpu, TrayPart.Gpu, TrayPart.Ram, TrayPart.Drive, TrayPart.Network }.Select(p => TrayParts.Color(p)).Distinct().Count());
     }
 
     [Theory]
@@ -303,8 +308,8 @@ public class TrayReadingsTests
         using var b = WidgetRenderer.RenderStrip([Showing("11%", "111 W")], 48, 1, out var edgesB);
         Assert.Equal(a.Width, b.Width);
         Assert.Equal(edgesA, edgesB);
-        // Right-aligned in its place: the last digit ends at the same spot either way.
-        Assert.Equal(RightmostInk(a), RightmostInk(b));
+        // Left-aligned in its place (1.3): the first digit starts at the same spot either way.
+        Assert.Equal(LeftmostInk(a), LeftmostInk(b));
     }
 
     [Fact]
@@ -327,13 +332,13 @@ public class TrayReadingsTests
         Assert.InRange(second.Ink, first.Ink * 0.9, first.Ink * 1.1);
     }
 
-    private static int RightmostInk(Bitmap bmp)
+    private static int LeftmostInk(Bitmap bmp)
     {
-        for (int x = bmp.Width - 1; x >= 0; x--)
+        for (int x = 0; x < bmp.Width; x++)
             for (int y = 0; y < bmp.Height / 2; y++)
                 if (bmp.GetPixel(x, y).A > 128) return x;
         return -1;
-    }
+    }
 
     [Theory]
     [InlineData(SensorKind.Load, "CPU Total", TrayPart.Cpu, "Load")]
@@ -412,10 +417,11 @@ public class TrayReadingsTests
     [Fact]
     public void A_graph_never_reaches_over_its_number()
     {
-        // The user's word: at its highest the graph goes up to the number, behind the word only.
+        // The user's word: at its highest the graph goes up to the number, behind the word only (a graph behind, 1.3's
+        // choice for each reading and where 1.2 drew every graph).
         var blue = Color.FromArgb(91, 140, 255);
         List<PointF> full = [new(0, 1), new(1, 1)];
-        using var bmp = WidgetRenderer.RenderStrip([new("CPU", blue, [new("88%", Color.White, "CPU", Graph: new StripGraph(full, blue))])], 48, 1, out _);
+        using var bmp = WidgetRenderer.RenderStrip([new("CPU", blue, [new("88%", Color.White, "CPU", Graph: new StripGraph(full, blue), Behind: true)])], 48, 1, out _);
         int fillTop = Enumerable.Range(0, bmp.Height).First(y => bmp.GetPixel(bmp.Width / 2, y) is { A: > 40 and < 255 } c && c.B > c.R);
         int digitsBottom = Ink(bmp, c => c.A > 200 && c.R > 200 && c.G > 200 && c.B > 200).Max(p => p.Y);
         Assert.True(fillTop > digitsBottom - 2, $"fill from {fillTop}, digits down to {digitsBottom}");
@@ -436,7 +442,7 @@ public class TrayReadingsTests
     {
         var blue = Color.FromArgb(91, 140, 255);
         List<PointF> points = [new(0, 0.5f), new(0.2f, 0.5f), new(0.4f, float.NaN), new(0.6f, float.NaN), new(0.8f, 0.5f), new(1, 0.5f)];
-        using var bmp = WidgetRenderer.RenderStrip([new("CPU", blue, [new("", blue, "", Graph: new StripGraph(points, blue))])], 48, 1, out _);
+        using var bmp = WidgetRenderer.RenderStrip([new("CPU", blue, [new("", blue, "", Graph: new StripGraph(points, blue), Behind: true)])], 48, 1, out _);
         int middle = 4 + (int)(WidgetRenderer.StripGraphWidth / 2);
         Assert.DoesNotContain(Enumerable.Range(0, bmp.Height - 5), y => bmp.GetPixel(middle, y).A > 40);
         Assert.True(bmp.GetPixel(6, bmp.Height - 5).A > 40, "either side of it filled");

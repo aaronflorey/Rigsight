@@ -109,7 +109,8 @@ public sealed partial class HomeViewModel(ReportService reports, LiveData live) 
     public bool ShowNoChanges => Loaded && !HasChanges;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(RecapTitle), nameof(RecapArg), nameof(RecapNote), nameof(RecapAsk), nameof(RecapAskText), nameof(IsYesterday), nameof(IsLastWeek), nameof(IsLastMonth), nameof(IsLastYear))]
+    [NotifyPropertyChangedFor(nameof(RecapTitle), nameof(RecapArg), nameof(RecapNote), nameof(RecapAsk), nameof(RecapAskText), nameof(IsYesterday), nameof(IsLastWeek), nameof(IsLastMonth), nameof(IsLastYear),
+        nameof(RecapDays))]
     private RecapPeriod _period;
 
     /// <summary>The periods there's history for, in order (a period only once it's whole and something was recorded in it).</summary>
@@ -133,7 +134,7 @@ public sealed partial class HomeViewModel(ReportService reports, LiveData live) 
     /// yesterday). A PC left off over a weekend opens on Friday's recap, not on an empty card.
     /// </summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(RecapTitle), nameof(RecapArg), nameof(RecapNote), nameof(RecapAsk), nameof(RecapAskText))]
+    [NotifyPropertyChangedFor(nameof(RecapTitle), nameof(RecapArg), nameof(RecapNote), nameof(RecapAsk), nameof(RecapAskText), nameof(RecapDays))]
     private DateTime? _lastUsedDay;
 
     /// <summary>The last day used stands in for yesterday (the "Day" recap, and that day isn't yesterday).</summary>
@@ -141,9 +142,9 @@ public sealed partial class HomeViewModel(ReportService reports, LiveData live) 
 
     public string RecapTitle => Period switch
     {
-        RecapPeriod.LastWeek => Lang.T("Last week"),
-        RecapPeriod.LastMonth => Lang.T("Last month"),
-        RecapPeriod.LastYear => Lang.T("Last year"),
+        RecapPeriod.LastWeek => Lang.T("Last 7 days"),
+        RecapPeriod.LastMonth => Lang.T("Last 30 days"),
+        RecapPeriod.LastYear => Lang.T("Last 12 months"),
         // A day of the last week by its name; an older one by its date.
         _ when StandIn is { } day => (DateTime.Today - day).TotalDays <= 6 ? day.ToString("dddd") : day.ToString("d MMMM"),
         _ => Lang.T("Yesterday"),
@@ -152,9 +153,9 @@ public sealed partial class HomeViewModel(ReportService reports, LiveData live) 
     /// <summary>The recap's AI button: how the period went, from the Reports page's records.</summary>
     public AiQuestion RecapAsk => new(Period switch
     {
-        RecapPeriod.LastWeek => Lang.T("How did my PC do last week, and is anything worth a look?"),
-        RecapPeriod.LastMonth => Lang.T("How did my PC do last month, and is anything worth a look?"),
-        RecapPeriod.LastYear => Lang.T("How did my PC do last year, and is anything worth a look?"),
+        RecapPeriod.LastWeek => Lang.T("How did my PC do in the last 7 days, and is anything worth a look?"),
+        RecapPeriod.LastMonth => Lang.T("How did my PC do in the last 30 days, and is anything worth a look?"),
+        RecapPeriod.LastYear => Lang.T("How did my PC do in the last 12 months, and is anything worth a look?"),
         _ when StandIn is { } day => Lang.T($"How did my PC do on {day:dddd d MMMM}, and is anything worth a look?"),
         _ => Lang.T("How did my PC do yesterday, and is anything worth a look?"),
     }, Core.Ai.AiPages.Reports);
@@ -162,12 +163,40 @@ public sealed partial class HomeViewModel(ReportService reports, LiveData live) 
     /// <summary>The button's words: the question it asks, following the tab (audit item 5, 2026-10-29).</summary>
     public string RecapAskText => Period switch
     {
-        RecapPeriod.LastWeek => Lang.T("What stood out last week?"),
-        RecapPeriod.LastMonth => Lang.T("What stood out last month?"),
-        RecapPeriod.LastYear => Lang.T("What stood out last year?"),
+        RecapPeriod.LastWeek => Lang.T("What stood out in the last 7 days?"),
+        RecapPeriod.LastMonth => Lang.T("What stood out in the last 30 days?"),
+        RecapPeriod.LastYear => Lang.T("What stood out in the last 12 months?"),
         _ when StandIn is { } day => (DateTime.Today - day).TotalDays <= 6 ? Lang.T($"What stood out on {day:dddd}?") : Lang.T($"What stood out on {day.ToString(TimeText.Fit("ddd d MMM"))}?"),
         _ => Lang.T("What stood out yesterday?"),
     };
+
+    /// <summary>The first day of the history, for <see cref="RecapDays"/>.</summary>
+    private DateTime? _firstDay;
+
+    /// <summary>
+    /// Under the title of the last 7 or 30 days or 12 months: the days they cover ("29 Oct – 4 Nov", "Nov 2025 – Oct 2026"),
+    /// and from when they were recorded when the history starts inside them ("6 Oct – 4 Nov · recorded since 28 Oct").
+    /// Without it a month that held only four days of history read as less than the week after it, and looked wrong
+    /// (issue #7, 2026-11-05).
+    /// </summary>
+    public string? RecapDays => Period == RecapPeriod.Yesterday ? DayOf(StandIn ?? DateTime.Today.AddDays(-1), DateTime.Today) : DaysOf(Period, DateTime.Today, _firstDay);
+
+    /// <summary>
+    /// The Day recap's date under its title, saying what the title doesn't: "Wednesday, 4 November" under "Yesterday",
+    /// the date under a day of the last week named by its day ("Monday"), the day's name under an older one titled by its date.
+    /// </summary>
+    internal static string DayOf(DateTime day, DateTime today) =>
+        day == today.AddDays(-1) ? day.ToString("dddd, d MMMM") : (today - day).TotalDays <= 6 ? day.ToString("d MMMM") : day.ToString("dddd");
+
+    internal static string DaysOf(RecapPeriod period, DateTime today, DateTime? firstDay)
+    {
+        var (range, anchor) = Bounds(period, today);
+        var (from, to) = ReportBuilder.Bounds(range, anchor);
+        var last = to.AddDays(-1);
+        // They end yesterday (or last month), so the picker's own words for them are their dates.
+        string days = PeriodWords.Label(range, from, today);
+        return firstDay is { } first && first.Date > from && first.Date <= last ? Lang.T($"{days} · recorded since {first:d MMM}") : days;
+    }
 
     /// <summary>Under the title when another day stands in for yesterday: why ("Not used for 2 days.").</summary>
     public string? RecapNote => StandIn is not { } day ? null
@@ -184,27 +213,25 @@ public sealed partial class HomeViewModel(ReportService reports, LiveData live) 
     };
 
     // Each period's sentence whole; a day standing in for yesterday by its name.
+    // These periods are over (they end yesterday, see Bounds), so nothing says "yet": an empty one stays empty.
     public string RecapEmptyTitle => Period switch
     {
-        RecapPeriod.LastWeek => Lang.T("No history for last week yet."),
-        RecapPeriod.LastMonth => Lang.T("No history for last month yet."),
-        RecapPeriod.LastYear => Lang.T("No history for last year yet."),
-        _ when StandIn is not null => DayEmptyTitle(RecapTitle.ToLowerInvariant()),
-        _ => Lang.T("No history for yesterday yet."),
+        RecapPeriod.LastWeek => Lang.T("Not recorded in the last 7 days."),
+        RecapPeriod.LastMonth => Lang.T("Not recorded in the last 30 days."),
+        RecapPeriod.LastYear => Lang.T("Not recorded in the last 12 months."),
+        _ when StandIn is not null => DayEmptyTitle(RecapTitle),
+        _ => Lang.T("Not recorded yesterday."),
     };
 
-    private static string DayEmptyTitle(string day) => Lang.T($"No history for {day} yet.");
+    private static string DayEmptyTitle(string day) => Lang.T($"Not recorded on {day}.");
 
     public string RecapEmptyText => Period switch
     {
-        RecapPeriod.LastWeek => Lang.T("Last week's active time, most-used apps and highlights show here once there's history for it."),
-        RecapPeriod.LastMonth => Lang.T("Last month's active time, most-used apps and highlights show here once there's history for it."),
-        RecapPeriod.LastYear => Lang.T("Last year's active time, most-used apps and highlights show here once there's history for it."),
-        _ when StandIn is not null => DayEmptyText(RecapTitle),
-        _ => Lang.T("Yesterday's active time, most-used apps and highlights show here once there's a full day of history."),
+        RecapPeriod.LastWeek => Lang.T("A week's active time, most-used apps and highlights show here once a full week is on record."),
+        RecapPeriod.LastMonth => Lang.T("A month's active time, most-used apps and highlights show here once a full month is on record."),
+        RecapPeriod.LastYear => Lang.T("A year's active time, most-used apps and highlights show here once a full year is on record."),
+        _ => Lang.T("A day's active time, most-used apps and highlights show here once a full day is on record."),
     };
-
-    private static string DayEmptyText(string day) => Lang.T($"{day}'s active time, most-used apps and highlights show here once there's history for it.");
 
     // The hours just after noon and in the early evening carry their own context: a language whose day splits
     // differently (Spanish keeps "buenos días" until lunch and "buenas tardes" until about nine) says them its own way.
@@ -275,25 +302,33 @@ public sealed partial class HomeViewModel(ReportService reports, LiveData live) 
     private DateTime _recapsFor;
     private int _recapLoad;
 
-    /// <summary>The period's bounds: a whole one, ending before today.</summary>
+    /// <summary>
+    /// The period's bounds: whole days, ending before today, as the Day recap is yesterday. The last 7 and 30 days end
+    /// yesterday; the last 12 months end with last month (12 whole months, a bar each).
+    /// </summary>
     public static (ReportRange Range, DateTime Anchor) Bounds(RecapPeriod period, DateTime today) => period switch
     {
-        RecapPeriod.LastWeek => (ReportRange.Week, today.AddDays(-7)),
-        RecapPeriod.LastMonth => (ReportRange.Month, new DateTime(today.Year, today.Month, 1).AddDays(-1)),
-        RecapPeriod.LastYear => (ReportRange.Year, new DateTime(today.Year - 1, 1, 1)),
+        RecapPeriod.LastWeek => (ReportRange.Week, today.AddDays(-1)),
+        RecapPeriod.LastMonth => (ReportRange.Month, today.AddDays(-1)),
+        RecapPeriod.LastYear => (ReportRange.Year, new DateTime(today.Year, today.Month, 1).AddDays(-1)),
         _ => (ReportRange.Day, today.AddDays(-1)),
     };
 
-    /// <summary>The periods to offer, from when history starts: each once it's whole and history reaches into it.</summary>
+    /// <summary>
+    /// The periods to offer, from when history starts: each once it's whole, and once history reaches back past the
+    /// shorter one before it (all of it in the last 7 days, the last 30 days would show the same and no more).
+    /// </summary>
     public static List<RecapPeriod> PeriodsFor(DateTime? firstDay, DateTime today)
     {
         var list = new List<RecapPeriod> { RecapPeriod.Yesterday };
         if (firstDay is not { } first) return list;
+        var shorterFrom = today.AddDays(-1);
         foreach (var period in new[] { RecapPeriod.LastWeek, RecapPeriod.LastMonth, RecapPeriod.LastYear })
         {
             var (range, anchor) = Bounds(period, today);
             var (from, to) = ReportBuilder.Bounds(range, anchor);
-            if (first < to && to <= today) list.Add(period);
+            if (first < shorterFrom && to <= today) list.Add(period);
+            shorterFrom = from;
         }
         return list;
     }
@@ -324,7 +359,9 @@ public sealed partial class HomeViewModel(ReportService reports, LiveData live) 
 
     private async Task LoadDayRecapAsync()
     {
-        Periods = PeriodsFor(await reports.FirstDayAsync(), DateTime.Today);
+        _firstDay = await reports.FirstDayAsync();
+        Periods = PeriodsFor(_firstDay, DateTime.Today);
+        OnPropertyChanged(nameof(RecapDays));
         if (!Periods.Contains(Period)) Period = RecapPeriod.Yesterday;
         await LoadRecapAsync();
         YesterdayChanged();

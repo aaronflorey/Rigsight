@@ -127,15 +127,34 @@ public static class Units
         };
     }
 
+    /// <summary>
+    /// A speed as the taskbar shows it, its unit stepping up by itself: "850 KB/s", "12 MB/s", "1.2 GB/s" (as Windows counts
+    /// them, 1 MB = 1,024 KB), or in bits as internet plans say them (<paramref name="bits"/>): "850 Kbps", "99 Mbps".
+    /// Under 10 with one decimal ("4.5 MB/s"), so the room for it stays about the same.
+    /// </summary>
+    public static string StripSpeed(double? bytesPerSec, bool bits)
+    {
+        if (bytesPerSec is not double v || !double.IsFinite(v)) return "–";
+        v = Math.Max(0, v);
+        string Num(double x) => (x < 10 ? x.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
+            : Math.Round(x).ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+        if (bits)
+        {
+            double b = v * 8;
+            return b >= 1e9 ? Num(b / 1e9) + " Gbps" : b >= 1e6 ? Num(b / 1e6) + " Mbps" : Num(b / 1e3) + " Kbps";
+        }
+        return v >= 1L << 30 ? Num(v / (1L << 30)) + " GB/s" : v >= 1L << 20 ? Num(v / (1L << 20)) + " MB/s" : Num(v / 1024) + " KB/s";
+    }
+
     public static string TypeLabel(SensorKind kind) => kind switch
     {
-        SensorKind.Temperature => Lang.T("TEMP"),
-        SensorKind.Voltage => Lang.T("VOLT"),
-        SensorKind.Current => Lang.T("AMPS"),
-        SensorKind.Control => Lang.T("CTRL"),
+        SensorKind.Temperature => Lang.T("TEMPERATURE"),
+        SensorKind.Voltage => Lang.T("VOLTAGE"),
+        SensorKind.Current => Lang.T("CURRENT"),
+        SensorKind.Control => Lang.T("FAN CONTROL"),
         SensorKind.Data or SensorKind.SmallData => Lang.T("DATA"),
-        SensorKind.Throughput => Lang.T("RATE"),
-        SensorKind.Factor => Lang.T("INFO"),
+        SensorKind.Throughput => Lang.T("THROUGHPUT"),
+        SensorKind.Factor => Lang.T("OTHER"),
         SensorKind.Power => Lang.T("POWER"),
         SensorKind.Clock => Lang.T("CLOCK"),
         SensorKind.Load => Lang.T("LOAD"),
@@ -151,6 +170,18 @@ public static class Units
     };
 
     /// <summary>"4h 05m", "45m", "30s".</summary>
+    /// <summary>
+    /// A length told to the second under an hour ("7m 38s", "40s"), as <see cref="Duration"/> past it ("1h 05m"): for
+    /// what's measured to the second, like how long the internet was down, where "7m" would round a real figure away.
+    /// </summary>
+    public static string DurationExact(double seconds)
+    {
+        if (!double.IsFinite(seconds) || seconds < 0) seconds = 0;
+        var t = TimeSpan.FromSeconds(Math.Round(seconds));
+        if (t.TotalHours >= 1) return Duration(seconds);
+        return t.TotalMinutes >= 1 ? Lang.T($"{t.Minutes}m {t.Seconds:00}s") : Lang.T($"{t.Seconds}s");
+    }
+
     public static string Duration(double seconds)
     {
         if (!double.IsFinite(seconds) || seconds < 0) seconds = 0;

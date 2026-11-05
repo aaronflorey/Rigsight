@@ -113,12 +113,10 @@ public static class NetInsights
                 {
                     (ReportRange.Day, true) => Lang.T("yesterday by now"),
                     (ReportRange.Day, false) => Lang.T("the day before"),
-                    (ReportRange.Week, true) => Lang.T("last week by now"),
-                    (ReportRange.Week, false) => Lang.T("the week before"),
-                    (ReportRange.Month, true) => Lang.T("last month by now"),
-                    (ReportRange.Month, false) => Lang.T("the month before"),
-                    (_, true) => Lang.T("last year by now"),
-                    _ => Lang.T("the year before"),
+                    // The ones before are as long (to the same hour, while these are still going on).
+                    (ReportRange.Week, _) => Lang.T("the 7 days before"),
+                    (ReportRange.Month, _) => Lang.T("the 30 days before"),
+                    _ => Lang.T("the 12 months before"),
                 };
                 double less = (1 - ratio) * 100;
                 against = ratio >= 1.25 ? Lang.T($", {ratio:0.0}× {last}") : ratio <= 0.8 ? Lang.T($", {less:0}% less than {last}") : Lang.T($", about the same as {last}");
@@ -135,8 +133,8 @@ public static class NetInsights
         {
             var longest = r.Drops.MaxBy(d => d.Seconds)!;
             int link = r.Drops.Count(d => d.Kind == NetDropKind.Link);
-            string why = link == 0 ? " " + Lang.T("Your PC stayed connected to the router each time, so the trouble was past it, in the router or your internet provider.")
-                : link == r.Drops.Count ? " " + Lang.T("Each time your PC's own connection to the router (the cable or Wi-Fi) went down.")
+            string why = link == 0 ? " " + Lang.T("Your PC stayed connected to the router each time, but the internet didn't come through.")
+                : link == r.Drops.Count ? " " + Lang.T("Each time, your PC lost its own connection to the router (the cable or Wi-Fi).")
                 : "";
             int drops = r.Drops.Count;
             list.Add(new Insight(IconDrop,

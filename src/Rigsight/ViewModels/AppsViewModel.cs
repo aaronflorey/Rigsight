@@ -144,35 +144,24 @@ public sealed partial class AppsViewModel(ReportService reports, SettingsModel s
     public string ChartTitle => IsDay ? Lang.T("Active time per hour")
         : ReportBuilder.IsLong(Unit, Period.From, Period.To) ? Lang.T("Active time per month") : Lang.T("Active time per day");
 
-    /// <summary>"Games · 1h 59m this week": what the app is, and how much it was used in the period.</summary>
+    /// <summary>"Games · 1h 59m in the last 7 days": what the app is, and how much it was used in the period.</summary>
     public string Summary
     {
         get
         {
             if (Selected is null) return "";
-            string period = Controls.PeriodPicker.Text(Unit, Anchor, CustomFrom, CustomTo);
             string category = Converters.CategoryLabelConverter.Label(SelectedCategory);
             string time = Core.Units.Duration(Selected.ActiveSec);
             // Told apart by the period, not its words (they're in the person's language).
             if (Unit == ReportRange.All) return Lang.T($"{category} · {time} in total");
-            if (IsNamedPeriod)
+            if (Unit == ReportRange.Custom)
             {
-                string named = period.ToLowerInvariant();
-                return Lang.T($"{category} · {time} {named}");
+                string range = Controls.PeriodPicker.Text(Unit, Anchor, CustomFrom, CustomTo);
+                return Lang.T($"{category} · {time} in {range}");
             }
-            return Unit == ReportRange.Day ? Lang.T($"{category} · {time} on {period}") : Lang.T($"{category} · {time} in {period}");
-        }
-    }
-
-    /// <summary>The period has a name of its own: today, yesterday, this or last week, month or year.</summary>
-    private bool IsNamedPeriod
-    {
-        get
-        {
-            if (Unit is ReportRange.All or ReportRange.Custom) return false;
-            var from = ReportBuilder.Bounds(Unit, Anchor).From;
-            return from == ReportBuilder.Bounds(Unit, DateTime.Today).From
-                || from == ReportBuilder.Bounds(Unit, ReportBuilder.Previous(Unit, DateTime.Today)).From;
+            // "today", "on Fri, 9 Oct", "in the last 7 days", "in the 7 days to 29 Oct", as the page says it elsewhere.
+            string when = Controls.PeriodPicker.Words(Unit, Anchor);
+            return Lang.T($"{category} · {time} {when}");
         }
     }
 
@@ -200,7 +189,9 @@ public sealed partial class AppsViewModel(ReportService reports, SettingsModel s
         get
         {
             string period = Controls.PeriodPicker.Words(Unit, Anchor);
-            return Lang.T($"No apps used {period} yet. Use your PC for a bit and come back.");
+            // A period that's over gets no "yet" or "come back": nothing more will be added to it.
+            bool over = Unit is not (ReportRange.All or ReportRange.Custom) && ReportBuilder.Bounds(Unit, Anchor).To <= DateTime.Now;
+            return over ? Lang.T($"No apps used {period}.") : Lang.T($"No apps used {period} yet. Use your PC for a bit and come back.");
         }
     }
 
@@ -336,6 +327,15 @@ public sealed partial class AppsViewModel(ReportService reports, SettingsModel s
         _pendingSelection = exe;
         Anchor = DateTime.Today;
         Unit = ReportRange.Day;
+        SelectExe(exe);
+    }
+
+    /// <summary>An app picked on another page (the Network page's list), for that page's period.</summary>
+    public void ShowFor(string exe, ReportRange unit, DateTime anchor)
+    {
+        _pendingSelection = exe;
+        Anchor = anchor;
+        Unit = unit;
         SelectExe(exe);
     }
 

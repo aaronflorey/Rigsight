@@ -73,9 +73,9 @@ public sealed class InsightEngineTests : IDisposable
 
     [Theory]
     [InlineData(ReportRange.Day, "A quiet day with only 10m of use, so there's not much to point out.")]
-    [InlineData(ReportRange.Week, "A quiet week with only 10m of use, so there's not much to point out.")]
-    [InlineData(ReportRange.Month, "A quiet month with only 10m of use, so there's not much to point out.")]
-    [InlineData(ReportRange.Year, "A quiet year with only 10m of use, so there's not much to point out.")]
+    [InlineData(ReportRange.Week, "Only 10m of use in these 7 days, so there's not much to point out.")]
+    [InlineData(ReportRange.Month, "Only 10m of use in these 30 days, so there's not much to point out.")]
+    [InlineData(ReportRange.Year, "Only 10m of use in these 12 months, so there's not much to point out.")]
     [InlineData(ReportRange.All, "A quiet stretch with only 10m of use, so there's not much to point out.")]
     public void A_period_with_little_use_is_called_quiet_and_nothing_else_is_said(ReportRange range, string text)
     {
@@ -129,7 +129,7 @@ public sealed class InsightEngineTests : IDisposable
 
     [Theory]
     [InlineData(CrashKind.GpuDriverReset, "", null, null, "Graphics driver reset at 3:04 PM.")]
-    [InlineData(CrashKind.UnexpectedShutdown, "", null, null, "The PC shut off suddenly at 3:04 PM (a power cut or a hard freeze).")]
+    [InlineData(CrashKind.UnexpectedShutdown, "", null, null, "The PC shut off suddenly at 3:04 PM (a power cut or a freeze).")]
     [InlineData(CrashKind.AppHang, "unknown.exe", null, null, "unknown froze at 3:04 PM.")]
     [InlineData(CrashKind.AppCrash, "game.exe", "nvwgf2umx.dll", "c0000005", "game crashed at 3:04 PM (NVIDIA driver).")]
     [InlineData(CrashKind.AppCrash, "game.exe", "game.exe", "c0000005", "game crashed at 3:04 PM, in its own code.")]
@@ -341,7 +341,7 @@ public sealed class InsightEngineTests : IDisposable
 
     [Theory]
     [InlineData(ReportRange.Day, "the day before")]
-    [InlineData(ReportRange.Week, "the week before")]
+    [InlineData(ReportRange.Week, "the 7 days before")]
     public void A_finished_period_is_compared_with_the_one_before(ReportRange range, string than)
     {
         Assert.Equal($"That's 2h 30m more screen time than {than}.", Line(Gen(Past(range, active: 5 * 3600), Past(range, active: 2.5 * 3600)), "screen-compare"));
@@ -354,21 +354,22 @@ public sealed class InsightEngineTests : IDisposable
         // March (31 days) with 62h against February (28 days) with 28h: 2h a day against 1h.
         Report Month(int month, int days, double hours) =>
             new() { Range = ReportRange.Month, From = new(2025, month, 1), To = new DateTime(2025, month, 1).AddDays(days), HasData = true, ActiveSec = hours * 3600, OnSec = hours * 3600 };
-        Assert.Equal("That's 1h 00m a day more than the month before.", Line(Gen(Month(3, 31, 62), Month(2, 28, 28)), "screen-compare"));
+        Assert.Equal("That's 1h 00m a day more than the 30 days before.", Line(Gen(Month(3, 31, 62), Month(2, 28, 28)), "screen-compare"));
         // More in total, but only for being longer: 31 × 2h against 28 × 2h 12m is less a day.
-        Assert.Equal("That's 12m a day less than the month before.", Line(Gen(Month(3, 31, 62), Month(2, 28, 28 * 2.2)), "screen-compare"));
+        Assert.Equal("That's 12m a day less than the 30 days before.", Line(Gen(Month(3, 31, 62), Month(2, 28, 28 * 2.2)), "screen-compare"));
         None(Gen(Month(3, 31, 62), Month(2, 28, 28 * 2.1)), "screen-compare"); // six minutes a day apart: not worth a line
 
         var year = new Report { Range = ReportRange.Year, From = new(2025, 1, 1), To = new(2026, 1, 1), HasData = true, ActiveSec = 730 * 3600, OnSec = 730 * 3600 };
         var before = new Report { Range = ReportRange.Year, From = new(2024, 1, 1), To = new(2025, 1, 1), HasData = true, ActiveSec = 366 * 3600, OnSec = 366 * 3600 };
-        Assert.Equal("That's 1h 00m a day more than the year before.", Line(Gen(year, before), "screen-compare"));
+        Assert.Equal("That's 1h 00m a day more than the 12 months before.", Line(Gen(year, before), "screen-compare"));
     }
 
     [Theory]
     [InlineData(ReportRange.Day, "yesterday by this time")]
-    [InlineData(ReportRange.Week, "last week by this point")]
-    [InlineData(ReportRange.Month, "last month by this point")]
-    [InlineData(ReportRange.Year, "last year by this point")]
+    // The last 7 or 30 days and 12 months against as long before, to the same hour: the words needn't say "by now".
+    [InlineData(ReportRange.Week, "the 7 days before")]
+    [InlineData(ReportRange.Month, "the 30 days before")]
+    [InlineData(ReportRange.Year, "the 12 months before")]
     public void A_period_in_progress_is_compared_with_the_same_point_of_the_one_before(ReportRange range, string than)
     {
         Assert.Equal($"That's 1h 00m less screen time than {than}.", Line(Gen(Now(range, active: 2 * 3600), Now(range, active: 3 * 3600)), "screen-compare"));
@@ -576,7 +577,7 @@ public sealed class InsightEngineTests : IDisposable
         Assert.Equal(["Your GPU spent 48 minutes over 75°, nearly all of it on Rematch.", "Your CPU spent 12 minutes over 75°, nearly all of it on Blender."],
             lines.Select(i => i.Text));
         Assert.All(lines, i => Assert.Equal(InsightTone.Neutral, i.Tone));
-        Assert.Equal("Rematch 46 min · Chrome 2 min", lines[0].Detail);
+        Assert.Equal("Rematch 46m · Chrome 2m", lines[0].Detail);
 
         r.GpuHotMinutes = 90; // an evening's gaming: where the heat went, not a warning (a GPU runs over 75° in most games)
         r.GpuHotByApp = [new HotShare("Rematch", 50), new HotShare("Dota 2", 30)];
@@ -665,7 +666,7 @@ public sealed class InsightEngineTests : IDisposable
         var list = Gen(Playing(gpu: 77, cpu: 66, restGpu: 41, restCpu: 42), context: new InsightContext(Then: Then()));
         var line = Assert.Single(list, i => i.Key == "drift");
         // What rules the room out is said as the figure that does (the GPU at rest), not as "not because of the room".
-        Assert.Equal("In Cyberpunk 2077, your GPU ran 7° hotter than in December 2024 at the same power, 77° against 70°. With nothing running it sat at 41°, as it did then, so dust or old thermal paste are the likely causes.", line.Text);
+        Assert.Equal("In Cyberpunk 2077, your GPU ran 7° hotter than in December 2024 at the same power, 77° against 70°. With nothing running it sat at 41°, as it did then. Dust or old thermal paste can do this.", line.Text);
         Assert.Equal("Cyberpunk 2077 ran 7° hotter than in December 2024", line.Short);
         Assert.Equal(InsightOpens.Usual, line.Opens);
         Assert.Equal((InsightTone.Warn, 72), (line.Tone, line.Priority));
@@ -727,7 +728,7 @@ public sealed class InsightEngineTests : IDisposable
         // 75.4 vs 69.6 is 5.8° apart, shown as 75° vs 70°: the line says 5°, what the two shown numbers make, not 6°.
         var then = new ThenHeat([Steady(Cyberpunk, 300, 69.6, 65, 300, 8)], new LoadTemps(42, 40, 400), Wed.AddDays(-120), Wed.AddDays(-30));
         var line = Line(Gen(Playing(gpu: 75.4, cpu: 65, restGpu: 40, restCpu: 42), context: new InsightContext(Then: then)), "drift");
-        Assert.Equal("In Cyberpunk 2077, your GPU ran 5° hotter than in December 2024 at the same power, 75° against 70°. With nothing running it sat at 40°, as it did then, so dust or old thermal paste are the likely causes.", line);
+        Assert.Equal("In Cyberpunk 2077, your GPU ran 5° hotter than in December 2024 at the same power, 75° against 70°. With nothing running it sat at 40°, as it did then. Dust or old thermal paste can do this.", line);
     }
 
     [Fact]
@@ -891,7 +892,7 @@ public sealed class InsightEngineTests : IDisposable
         r.Crashes.Add(new CrashEvent { Id = 1, Ts = TimeUtil.ToUnix(At1504), Kind = CrashKind.UnexpectedShutdown, DuringSleep = true });
         Assert.Equal("The PC shut off while asleep at 3:04 PM.", Line(Gen(r), "crash"));
         r.Crashes[0] = new CrashEvent { Id = 1, Ts = TimeUtil.ToUnix(At1504), Kind = CrashKind.UnexpectedShutdown };
-        Assert.Equal("The PC shut off suddenly at 3:04 PM (a power cut or a hard freeze).", Line(Gen(r), "crash"));
+        Assert.Equal("The PC shut off suddenly at 3:04 PM (a power cut or a freeze).", Line(Gen(r), "crash"));
     }
 
     [Fact]
@@ -966,7 +967,7 @@ public sealed class InsightEngineTests : IDisposable
         discord.BackgroundSec = 1.5 * 3600;
         discord.MinimizedSec = 0.5 * 3600;
         r.Apps.Add(discord);
-        Assert.Equal("Discord sat open in the background for 2h 00m but you only used it for 10m.", Line(Gen(r), "idle-app"));
+        Assert.Equal("Discord was open in the background for 2h 00m but you only used it for 10m.", Line(Gen(r), "idle-app"));
         discord.ActiveSec = 30 * 60; // a quarter of the open time: it was used
         None(Gen(r), "idle-app");
     }
@@ -978,7 +979,7 @@ public sealed class InsightEngineTests : IDisposable
         var discord = App("Discord", AppCategory.Communication, 0);
         discord.BackgroundSec = 7 * 3600;
         r.Apps.Add(discord);
-        Assert.Equal("Discord sat open in the background for 7h 00m and you never opened it.", Line(Gen(r), "idle-app"));
+        Assert.Equal("Discord was open in the background for 7h 00m and you never switched to it.", Line(Gen(r), "idle-app"));
     }
 
     [Fact]
@@ -999,11 +1000,11 @@ public sealed class InsightEngineTests : IDisposable
         var r = Past();
         r.LongAwaySec = 2 * 3600;
         var away = Assert.Single(Gen(r), i => i.Key == "away");
-        Assert.Equal("Your PC sat on with nobody there for 2h 00m that day.", away.Text);
+        Assert.Equal("Your PC was on with nobody there for 2h 00m that day.", away.Text);
         Assert.Equal(InsightTone.Neutral, away.Tone);
         var today = Now();
         today.LongAwaySec = 3600;
-        Assert.Equal("Your PC sat on with nobody there for 1h 00m today.", Line(Gen(today), "away"));
+        Assert.Equal("Your PC was on with nobody there for 1h 00m today.", Line(Gen(today), "away"));
         r.LongAwaySec = 3599;
         r.AwaySec = 5 * 3600; // twelve coffee breaks aren't the PC left on: only the long stretches count
         None(Gen(r), "away");

@@ -676,13 +676,13 @@ public sealed class CrashesPageTests
     }
 
     [Fact]
-    public void This_months_timeline_has_a_day_for_each_day_so_far()
+    public void The_last_30_days_timeline_has_a_day_for_each_of_them()
     {
         var vm = Loaded(ReportRange.Month);
         Ui.Run(() =>
         {
-            var first = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
-            Assert.Equal((int)(DateTime.Today - first).TotalDays + 1, vm.Days.Count);
+            var first = DateTime.Today.AddDays(-29);
+            Assert.Equal(30, vm.Days.Count);
             Assert.Equal(first, vm.Days[0].Day);
             Assert.Equal(Counted(vm), vm.Days.Sum(d => d.Total));
             Assert.True(vm.IncludesToday);
@@ -710,7 +710,7 @@ public sealed class CrashesPageTests
         Ui.Run(() =>
         {
             Assert.Equal("All clear", vm.StatusTitle);
-            Assert.Equal("No app crashes this month.", vm.StatusDetail);
+            Assert.Equal("No app crashes in the last 30 days.", vm.StatusDetail);
             Assert.Equal("GoodBrush", vm.StatusBrush);
         });
     }
@@ -784,7 +784,7 @@ public sealed class CrashesPageTests
         Ui.Run(() =>
         {
             Assert.Equal("The PC shut off suddenly 5 days ago", vm.StatusTitle);
-            Assert.Equal("Possibly mains or power supply · also 1 likely power cut this month.", vm.StatusDetail);
+            Assert.Equal("Possibly mains or power supply · also 1 likely power cut in the last 30 days.", vm.StatusDetail);
             // Two shut-offs counted, one of them a power cut; the shutdown that didn't finish listed, not counted.
             Assert.Equal((2, 1, 1), (vm.SystemCount, vm.PowerCutCount, vm.UnfinishedCount));
             Assert.Equal("1 likely power cut", vm.PowerCutText);
@@ -848,7 +848,7 @@ public sealed class CrashesPageTests
             Assert.Equal("No serious problems", vm.StatusTitle);
             Assert.Contains("2 shutdowns that didn't finish (usually harmless)", vm.StatusDetail);
             Assert.Contains("1 sudden shut-off while asleep (not a fault)", vm.StatusDetail);
-            Assert.Contains(vm.Patterns, p => p.Text.StartsWith("2 more shutdowns didn't finish while Windows was shutting down"));
+            Assert.Contains(vm.Patterns, p => p.Text.StartsWith("2 shutdowns didn't finish."));
             Assert.DoesNotContain(vm.Patterns, p => p.Text.Contains("while the PC was asleep"));
         });
     }
@@ -903,7 +903,7 @@ public sealed class CrashesPageTests
         {
             Assert.Contains(vm.Patterns, p => p.Text.StartsWith("2 problems involved the graphics driver"));
             // 90° is over the alert limit (83°): heat is counted by the user's own limits, as each case judges it.
-            Assert.Contains(vm.Patterns, p => p.Text == "1 crash happened while your hardware was over your alert limits. Check airflow and fan curves.");
+            Assert.Contains(vm.Patterns, p => p.Text == "1 problem happened while the CPU or GPU was over your alert limit. If it happens again, check airflow and fan curves.");
         });
         Show(vm, [Crashes.App(now.AddHours(-1))]);
         Ui.Run(() => Assert.Empty(vm.Patterns));
