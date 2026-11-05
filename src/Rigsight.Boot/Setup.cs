@@ -136,7 +136,8 @@ internal static class Setup
             <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
               <RegistrationInfo><Description>Finishes early-boot traces and builds local boot reports without the Rigsight window.</Description></RegistrationInfo>
               <Triggers><BootTrigger><Repetition><Interval>PT1M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><Enabled>true</Enabled></BootTrigger></Triggers>
-              <Principals><Principal id="System"><UserId>S-1-5-18</UserId><LogonType>ServiceAccount</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+    <!-- For SYSTEM principals, UserId alone is sufficient; schtasks rejects any LogonType here. -->
+          <Principals><Principal id="System"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
               <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable><ExecutionTimeLimit>PT1H</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings>
               <Actions Context="System"><Exec><Command>{exe}</Command><Arguments>--worker</Arguments><WorkingDirectory>{SecurityElement.Escape(AppContext.BaseDirectory)}</WorkingDirectory></Exec></Actions>
             </Task>
